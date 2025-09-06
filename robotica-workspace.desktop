@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Robotica Movel Workspace
+Comment=Restore robotica movel development workspace (auto-mounts Windows-SSD if needed)
+Exec=gnome-terminal -- bash -c "cd '/media/danielterra/Windows-SSD/Users/danie/Documents/Documents/MESTRADO/25-2_robotica-movel' && ./restore-workspace.sh; read -p 'Press Enter to close...'"
+Icon=applications-development
+Terminal=false
+StartupNotify=true
+Categories=Development;

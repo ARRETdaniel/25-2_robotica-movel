@@ -368,25 +368,21 @@ def Rx(theta: float) -> np.ndarray:
                      [0, np.sin(theta),  np.cos(theta)]])
 
 def create_homogeneous_matrix(position: np.ndarray, euler_angles: np.ndarray) -> np.ndarray:
+    """ # debugging
+    Cria uma matriz de transformação homogênea 4x4 a partir da posição e ângulos de Euler.
+    Assume a convenção ZYX (Yaw, Pitch, Roll).
     """
-    Create a 4x4 homogeneous transformation matrix from position and Euler angles.
+    # Atribui os ângulos de Euler (rx, ry, rz) aos seus respectivos nomes
+    # para maior clareza e correção.
+    roll = euler_angles[0]  # Rotação em torno de X
+    pitch = euler_angles[1] # Rotação em torno de Y
+    yaw = euler_angles[2]   # Rotação em torno de Z
 
-    Uses Z-Y-X Euler angle convention (Roll-Pitch-Yaw).
-    Based on aula04 and aula05 materials.
+    # Constrói a matriz de rotação usando a convenção correta ZYX (Yaw-Pitch-Roll)
+    # A rotação mais importante (Yaw) é aplicada em torno do eixo Z.
+    R = Rz(yaw) @ Ry(pitch) @ Rx(roll)
 
-    Args:
-        position: 3D position vector [x, y, z]
-        euler_angles: Euler angles [alpha, beta, gamma] in radians
-
-    Returns:
-        np.ndarray: 4x4 homogeneous transformation matrix
-    """
-    alpha, beta, gamma = euler_angles
-
-    # Rotation matrix from Z-Y-X Euler angles
-    R = Rz(alpha) @ Ry(beta) @ Rx(gamma)
-
-    # Create 4x4 homogeneous matrix
+    # Monta a matriz de transformação homogênea 4x4
     T = np.eye(4)
     T[:3, :3] = R
     T[:3, 3] = position
@@ -738,38 +734,6 @@ class SceneAnalyzer:
         plt.tight_layout()
         plt.show()
 
-
-# === Configuration and Constants ===
-
-# Default object mapping for TP1 scenes
-DEFAULT_OBJECT_MAPPING_EX1_4 = {
-    'Robot': 'RobotnikSummitXL',
-    'Bill_0': 'Bill[0]',
-    'Bill_1': 'Bill[1]',
-    'Crate': 'Floor/ConcretBlock',
-    'Pillar_0': 'Floor/20cmHighPillar10cm[0]',
-    'Pillar_1': 'Floor/20cmHighPillar10cm[1]',
-    'Table': 'diningTable',
-    'Laptop_0': 'diningTable/laptop[0]',
-    'Laptop_1': 'diningTable/laptop[1]',
-    'Fence_0': 'Floor/20cmHighWall100cm[0]',
-    'Fence_1': 'Floor/20cmHighWall100cm[1]'
-}
-
-# Object mapping for exercise 5-6 (with laser-equipped robot)
-DEFAULT_OBJECT_MAPPING_EX5_6 = {
-    'Robot': 'PioneerP3DX',
-    'Bill_0': 'Bill[0]',
-    'Bill_1': 'Bill[1]',
-    'Crate': 'Floor/ConcretBlock',
-    'Pillar_0': 'Floor/20cmHighPillar10cm[0]',
-    'Pillar_1': 'Floor/20cmHighPillar10cm[1]',
-    'Table': 'diningTable',
-    'Laptop_0': 'diningTable/laptop[0]',
-    'Laptop_1': 'diningTable/laptop[1]',
-    'Fence_0': 'Floor/20cmHighWall100cm[0]',
-    'Fence_1': 'Floor/20cmHighWall100cm[1]'
-}
 
 def setup_simulation(stepping: bool = True) -> None:
     """

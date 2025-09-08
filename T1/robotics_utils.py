@@ -150,102 +150,57 @@ class CoppeliaSimConnector:
             return None
 
 
+class PioneerP3DX:
+    """A class to control the Pioneer P3DX robot in CoppeliaSim."""
+    def __init__(self, sim, robot_name: str):
+        self._sim = sim
+        self.name = robot_name
+
+        # Get handles for the wheels
+        self.left_motor_handle = self._sim.getObject(f'/{self.name}/leftMotor')
+        self.right_motor_handle = self._sim.getObject(f'/{self.name}/rightMotor')
+
+        if self.left_motor_handle == -1 or self.right_motor_handle == -1:
+            raise ValueError(f"Could not find motor handles for robot '{self.name}'. Check the scene.")
+
+    def drive(self, v_left: float, v_right: float):
+        """Sets the velocities of the left and right wheels."""
+        self._sim.setJointTargetVelocity(self.left_motor_handle, v_left)
+        self._sim.setJointTargetVelocity(self.right_motor_handle, v_right)
+
+# --- NEW: Hokuyo Sensor Class (based on aula03) ---
 class HokuyoSensorSim:
-    """
-    Simulates a Hokuyo laser sensor in CoppeliaSim using vision sensors.
-
-    This class provides an interface to interact with a simulated Hokuyo sensor,
-    typically attached to a robot. It manages the underlying vision sensors and
-    provides methods to retrieve sensor data in different formats.
-
-    Attributes:
-        _sim: The simulation API object
-        _base_name: Name of the base object (must contain 'fastHokuyo')
-        _is_range_data: Whether to return range data or 3D points
-        _base_obj: Handle of the base object
-        _vision_sensors_obj: List of vision sensor handles
-    """
-
-    def __init__(self, sim, base_name: str, is_range_data: bool = True):
-        """
-        Initialize the Hokuyo sensor simulation.
-
-        Args:
-            sim: CoppeliaSim API object
-            base_name: Name of the base object (must contain 'fastHokuyo')
-            is_range_data: If True, returns [angle, distance], else returns [x, y, z]
-        """
+    """Simulates a Hokuyo laser sensor in CoppeliaSim."""
+    def __init__(self, sim, base_name, is_range_data=False):
         self._sim = sim
         self._base_name = base_name
         self._is_range_data = is_range_data
+        self._base_obj = self._sim.getObject(base_name)
+        if self._base_obj == -1: raise ValueError(f"Base object '{base_name}' not found.")
 
-        # Sensor specifications (from aula03)
-        self._angle_min = -120 * math.pi / 180  # -120 degrees
-        self._angle_max = 120 * math.pi / 180   # +120 degrees
-        self._angle_increment = (240 / 684) * math.pi / 180  # 240 deg over 684 points
-
-        # Validate and get base object handle
-        if "fastHokuyo" not in base_name:
-            raise ValueError(f"ERR: 'fastHokuyo' must be in the base object name. Ex: '/PioneerP3DX/fastHokuyo'")
-
-        self._base_obj = sim.getObject(base_name)
-        if self._base_obj == -1:
-            raise ValueError(f"ERR: base object '{base_name}' not found in simulation")
-
-        # Get vision sensor handles
         self._vision_sensors_obj = [
-            sim.getObject(f"{base_name}/sensor1"),
-            sim.getObject(f"{base_name}/sensor2"),
+            self._sim.getObject(f"{self._base_name}/sensor1"),
+            self._sim.getObject(f"{self._base_name}/sensor2"),
         ]
-
         if any(obj == -1 for obj in self._vision_sensors_obj):
-            raise ValueError(f"ERR: vision sensors not found for '{base_name}'")
+            raise ValueError("Could not find all vision sensors for the Hokuyo model.")
 
-    def get_is_range_data(self) -> bool:
-        """Return whether sensor returns range data."""
-        return self._is_range_data
-
-    def set_is_range_data(self, is_range_data: bool) -> None:
-        """Set whether sensor should return range data."""
-        self._is_range_data = is_range_data
-
-    def getSensorData(self) -> np.ndarray:
-        """
-        Retrieve sensor data from the vision sensors.
-
-        Returns:
-            np.ndarray: Either [[angle, distance], ...] or [[x, y, z], ...]
-                       depending on _is_range_data setting
-        """
-        angle = self._angle_min
+    def getSensorData(self):
+        """Retrieves points in the ROBOT's frame (when is_range_data=False)."""
         sensor_data = []
-
         for vision_sensor in self._vision_sensors_obj:
             r, t, u = self._sim.readVisionSensor(vision_sensor)
             if u:
                 sensorM = self._sim.getObjectMatrix(vision_sensor)
-                relRefM = self._sim.getObjectMatrix(self._base_obj)
-                relRefM = self._sim.getMatrixInverse(relRefM)
+                relRefM = self._sim.getMatrixInverse(self._sim.getObjectMatrix(self._base_obj))
                 relRefM = self._sim.multiplyMatrices(relRefM, sensorM)
-
-                p = [0, 0, 0]
-                p = self._sim.multiplyVector(sensorM, p)
-                t = [p[0], p[1], p[2], 0, 0, 0]
-
                 for j in range(int(u[1])):
                     for k in range(int(u[0])):
                         w = 2 + 4 * (j * int(u[0]) + k)
                         v = [u[w], u[w + 1], u[w + 2], u[w + 3]]
-                        angle = angle + self._angle_increment
-
-                        if self._is_range_data:
-                            sensor_data.append([angle, v[3]])
-                        else:
-                            p = self._sim.multiplyVector(relRefM, v)
-                            sensor_data.append([p[0], p[1], p[2]])
-
+                        p = self._sim.multiplyVector(relRefM, v)
+                        sensor_data.append([p[0], p[1], p[2]])
         return np.array(sensor_data)
-
 
 class RobotController:
     """
@@ -488,6 +443,215 @@ def draw_laser_data(laser_data: np.ndarray, max_sensor_range: float = 5.0,
     ax.set_ylabel('Y (meters)')
     ax.legend()
     plt.show()
+
+
+# === Exercise 5 Specific Functions ===
+
+def compute_laser_robot_transformation() -> np.ndarray:
+    """
+    Compute the transformation matrix T_R_L from laser frame to robot frame.
+
+    For the Pioneer P3DX with fastHokuyo, the laser is typically mounted
+    at the center-front of the robot, slightly elevated.
+
+    Returns:
+        np.ndarray: 4x4 transformation matrix T_R_L
+    """
+    # Laser offset relative to robot center (in robot frame)
+    # These values are typical for Pioneer P3DX with Hokuyo mounting
+    laser_offset_x = 0.1    # 10cm forward from robot center
+    laser_offset_y = 0.0    # Centered laterally
+    laser_offset_z = 0.15   # 15cm above robot base
+
+    position = np.array([laser_offset_x, laser_offset_y, laser_offset_z])
+    orientation = np.array([0.0, 0.0, 0.0])  # Same orientation as robot
+
+    T_R_L = create_homogeneous_matrix(position, orientation)
+
+    return T_R_L
+
+
+def transform_laser_to_global_ex5(laser_data: np.ndarray,
+                                  robot_pose: Tuple[np.ndarray, np.ndarray],
+                                  T_R_L: Optional[np.ndarray] = None) -> np.ndarray:
+    """
+    Transform laser points from laser frame to global world frame for Exercise 5.
+
+    This implements the full transformation chain: Laser -> Robot -> World
+    Using the matrices T_R_L (robot to laser) and T_W_R (world to robot)
+
+    Args:
+        laser_data: Array of [angle, distance] pairs from laser
+        robot_pose: Tuple of (position, orientation) in world frame
+        T_R_L: Transformation from robot to laser (computed if None)
+
+    Returns:
+        np.ndarray: Array of [x, y, z] points in world coordinates
+    """
+    if len(laser_data) == 0:
+        return np.array([])
+
+    # Get robot pose
+    robot_position, robot_orientation = robot_pose
+
+    # Compute T_W_R (world to robot transformation)
+    T_W_R = create_homogeneous_matrix(robot_position, robot_orientation)
+
+    # Compute T_R_L (robot to laser transformation) if not provided
+    if T_R_L is None:
+        T_R_L = compute_laser_robot_transformation()
+
+    # Compute complete transformation T_W_L = T_W_R @ T_R_L
+    T_W_L = T_W_R @ T_R_L
+
+    # Convert laser data to 3D points in laser frame
+    laser_points_local = []
+    for angle, distance in laser_data:
+        # Convert polar to Cartesian in laser frame
+        x_laser = distance * np.cos(angle)
+        y_laser = distance * np.sin(angle)
+        z_laser = 0.0  # Laser scan is typically planar
+
+        laser_points_local.append([x_laser, y_laser, z_laser, 1.0])  # Homogeneous coordinates
+
+    if len(laser_points_local) == 0:
+        return np.array([])
+
+    # Transform all points to global frame
+    laser_points_local = np.array(laser_points_local).T  # 4xN matrix
+    global_points = T_W_L @ laser_points_local  # Transform to world frame
+
+    # Convert back to 3D points (remove homogeneous coordinate)
+    global_points_3d = global_points[:3, :].T  # Nx3 matrix
+
+    return global_points_3d
+
+
+def visualize_laser_global_frame(laser_data: np.ndarray,
+                                robot_pose: Tuple[np.ndarray, np.ndarray],
+                                title: str = "Laser Data in Global Frame") -> None:
+    """
+    Visualize laser data transformed to global frame along with robot pose.
+
+    Args:
+        laser_data: Array of [angle, distance] pairs
+        robot_pose: Robot pose as (position, orientation)
+        title: Plot title
+    """
+    if len(laser_data) == 0:
+        print("No laser data to visualize")
+        return
+
+    # Transform laser data to global frame
+    global_points = transform_laser_to_global_ex5(laser_data, robot_pose)
+
+    if len(global_points) == 0:
+        print("No valid global points to plot")
+        return
+
+    # Create visualization
+    fig, ax = plt.subplots(figsize=(12, 10))
+    ax.set_aspect('equal')
+    ax.set_title(title)
+
+    # Plot laser points in global frame
+    ax.scatter(global_points[:, 0], global_points[:, 1],
+              c='red', s=2, alpha=0.7, label='Laser Points (Global)')
+
+    # Plot robot position and orientation
+    robot_pos, robot_ori = robot_pose
+    ax.plot(robot_pos[0], robot_pos[1], 'bo', markersize=10, label='Robot Position')
+
+    # Draw robot orientation arrow
+    arrow_length = 0.5
+    arrow_x = arrow_length * np.cos(robot_ori[2])  # Yaw angle
+    arrow_y = arrow_length * np.sin(robot_ori[2])
+    ax.arrow(robot_pos[0], robot_pos[1], arrow_x, arrow_y,
+             head_width=0.1, head_length=0.1, fc='blue', ec='blue',
+             label='Robot Orientation')
+
+    # Add coordinate frame at robot position
+    frame_size = 0.3
+    # X-axis (red)
+    x_axis_end = robot_pos[:2] + frame_size * np.array([
+        np.cos(robot_ori[2]), np.sin(robot_ori[2])
+    ])
+    ax.arrow(robot_pos[0], robot_pos[1],
+             x_axis_end[0] - robot_pos[0], x_axis_end[1] - robot_pos[1],
+             head_width=0.05, head_length=0.05, fc='red', ec='red', alpha=0.8)
+
+    # Y-axis (green)
+    y_axis_end = robot_pos[:2] + frame_size * np.array([
+        -np.sin(robot_ori[2]), np.cos(robot_ori[2])
+    ])
+    ax.arrow(robot_pos[0], robot_pos[1],
+             y_axis_end[0] - robot_pos[0], y_axis_end[1] - robot_pos[1],
+             head_width=0.05, head_length=0.05, fc='green', ec='green', alpha=0.8)
+
+    # Formatting
+    ax.grid(True, alpha=0.3)
+    ax.set_xlabel('X (meters)')
+    ax.set_ylabel('Y (meters)')
+    ax.legend()
+
+    # Add information text
+    info_text = f"Robot Pose: [{robot_pos[0]:.2f}, {robot_pos[1]:.2f}, {np.rad2deg(robot_ori[2]):.1f}°]\n"
+    info_text += f"Laser Points: {len(global_points)}"
+    ax.text(0.02, 0.98, info_text, transform=ax.transAxes,
+            verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
+
+    plt.tight_layout()
+    plt.show()
+
+
+def analyze_transformation_matrices(robot_pose: Tuple[np.ndarray, np.ndarray]) -> Dict[str, np.ndarray]:
+    """
+    Analyze and return the transformation matrices for Exercise 5.
+
+    Args:
+        robot_pose: Current robot pose as (position, orientation)
+
+    Returns:
+        Dict containing T_W_R and T_R_L matrices with validation info
+    """
+    robot_position, robot_orientation = robot_pose
+
+    # Compute transformation matrices
+    T_W_R = create_homogeneous_matrix(robot_position, robot_orientation)
+    T_R_L = compute_laser_robot_transformation()
+    T_W_L = T_W_R @ T_R_L
+
+    # Validate matrices
+    matrices_valid = all([
+        validate_transformation_matrix(T_W_R),
+        validate_transformation_matrix(T_R_L),
+        validate_transformation_matrix(T_W_L)
+    ])
+
+    print("=== Transformation Matrix Analysis ===")
+    print(f"Robot Position: [{robot_position[0]:.3f}, {robot_position[1]:.3f}, {robot_position[2]:.3f}] m")
+    print(f"Robot Orientation: [{np.rad2deg(robot_orientation[0]):.1f}°, {np.rad2deg(robot_orientation[1]):.1f}°, {np.rad2deg(robot_orientation[2]):.1f}°]")
+    print(f"Matrices Valid: {matrices_valid}")
+    print()
+
+    print("T_W_R (World to Robot):")
+    print(T_W_R)
+    print()
+
+    print("T_R_L (Robot to Laser):")
+    print(T_R_L)
+    print()
+
+    print("T_W_L (World to Laser) = T_W_R @ T_R_L:")
+    print(T_W_L)
+    print("="*50)
+
+    return {
+        'T_W_R': T_W_R,
+        'T_R_L': T_R_L,
+        'T_W_L': T_W_L,
+        'matrices_valid': matrices_valid
+    }
 
 def plot_robot_path(path: List[np.ndarray], laser_points: List[np.ndarray],
                    title: str = "Robot Navigation Path") -> None:

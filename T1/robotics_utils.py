@@ -15,6 +15,8 @@ Date: September 2025
 
 import numpy as np
 import matplotlib.pyplot as plt
+import math
+import time
 from typing import Dict, List, Tuple, Optional
 from coppeliasim_zmqremoteapi_client import RemoteAPIClient
 
@@ -394,9 +396,9 @@ def validate_transformation_matrix(T: np.ndarray) -> bool:
 
     return True
 
-# TODO: customize the code below to our current solution above.
+# TODO:
 # ex5 to 6
-# We need to adapt it to our current solution
+# Copied and modified from professor's aula03 notebook.
 class HokuyoSensorSim(object):
     """
     Simulates a Hokuyo laser sensor in CoppeliaSim using vision sensors.
@@ -478,59 +480,146 @@ class HokuyoSensorSim(object):
         self._is_range_data = is_range_data
 
     def getSensorData(self):
+        """
+        Retrieves sensor data from the vision sensors.
 
+        Returns:
+            numpy.ndarray: Array of [angle, distance] values for range data
+                          or [x, y, z] points for point data
+
+        Raises:
+            ValueError: If no valid sensor data could be obtained
+        """
         angle = self._angle_min
         sensor_data = []
+        max_sensor_range = 5.0  # Maximum sensor range in meters
 
-        for vision_sensor in self._vision_sensors_obj:
-            r, t, u = sim.readVisionSensor(vision_sensor)
-            if u:
-                sensorM = sim.getObjectMatrix(vision_sensor)
-                relRefM = sim.getObjectMatrix(self._base_obj)
-                relRefM = sim.getMatrixInverse(relRefM)
-                relRefM = sim.multiplyMatrices(relRefM, sensorM)
+        # Safety check for vision sensors
+        if not self._vision_sensors_obj or any(obj == -1 for obj in self._vision_sensors_obj):
+            raise ValueError("Sensores de visão não estão disponíveis")
 
+        try:
+            # Process each vision sensor
+            for i, vision_sensor in enumerate(self._vision_sensors_obj):
+                # Read vision sensor data
+                r, t, u = self._sim.readVisionSensor(vision_sensor)
+
+                if u is None or len(u) < 3:
+                    continue
+
+                # Get sensor and reference matrices
+                sensorM = self._sim.getObjectMatrix(vision_sensor)
+                relRefM = self._sim.getObjectMatrix(self._base_obj)
+                relRefM = self._sim.getMatrixInverse(relRefM)
+                relRefM = self._sim.multiplyMatrices(relRefM, sensorM)
+
+                # Process sensor data
                 p = [0, 0, 0]
-                p = sim.multiplyVector(sensorM, p)
-                t = [p[0], p[1], p[2], 0, 0, 0]
-                for j in range(int(u[1])):
-                    for k in range(int(u[0])):
-                        w = 2 + 4 * (j * int(u[0]) + k)
+                p = self._sim.multiplyVector(sensorM, p)
+
+                # Get sensor dimensions
+                rows = int(u[1]) if len(u) > 1 else 0
+                cols = int(u[0]) if len(u) > 0 else 0
+
+                if rows == 0 or cols == 0:
+                    continue
+
+                # Process sensor data points
+                for j in range(rows):
+                    for k in range(cols):
+                        # Calculate index with bounds checking
+                        w = 2 + 4 * (j * cols + k)
+
+                        # Ensure we don't go out of bounds
+                        if w + 3 >= len(u):
+                            continue
+
+                        # Extract point data
                         v = [u[w], u[w + 1], u[w + 2], u[w + 3]]
-                        angle = angle + self._angle_increment
+                        current_angle = angle + self._angle_increment
+
+                        # Ensure valid range
+                        if not np.isfinite(v[3]) or v[3] <= 0:
+                            v[3] = max_sensor_range
+
                         if self._is_range_data:
-                            sensor_data.append([angle, v[3]])
+                            # Store angle and distance
+                            sensor_data.append([current_angle, min(v[3], max_sensor_range)])
                         else:
-                            p = sim.multiplyVector(relRefM, v)
+                            # Transform to base frame
+                            p = self._sim.multiplyVector(relRefM, v)
                             sensor_data.append([p[0], p[1], p[2]])
+
+                        angle = current_angle
+
+        except Exception as e:
+            print(f"Erro ao processar dados do laser: {e}")
+            raise
+
+        # Check if we got any data
+        if len(sensor_data) == 0:
+            raise ValueError("Não foi possível obter dados do sensor")
 
         return np.array(sensor_data)
 
-"""
-Plots the laser scan data.
-"""
-def draw_laser_data(laser_data, max_sensor_range=5):
 
-    fig = plt.figure(figsize=(6,6), dpi=100)
-    ax = fig.add_subplot(111, aspect='equal')
+def draw_laser_data(laser_data, max_sensor_range=5.0, ax=None, title="Laser Scan Data", show_plot=True):
+    """
+    Plota os dados do laser.
 
-    # Combine angle and distance data for plotting
+    Args:
+        laser_data: Array Nx2 com valores de [ângulo, distância]
+        max_sensor_range: Alcance máximo do sensor em metros
+        ax: Eixo matplotlib opcional (cria uma nova figura se None)
+        title: Título do plot
+        show_plot: Se True, exibe o plot imediatamente
+
+    Returns:
+        matplotlib.axes.Axes: O objeto de eixos do plot
+    """
+    # Criar nova figura se necessário
+    if ax is None:
+        fig = plt.figure(figsize=(6,6))
+        ax = fig.add_subplot(111, aspect='equal')
+
+    # Contar pontos válidos
+    valid_points = 0
+
+    # Plotar cada ponto do laser
     for ang, dist in laser_data:
-        # Filter out readings that are at the maximum range, as they
-        # likely indicate no object was detected by that beam.
+        # Filtrar leituras no alcance máximo
         if (max_sensor_range - dist) > 0.1:
             x = dist * np.cos(ang)
             y = dist * np.sin(ang)
-            # Use different colors for different quadrants for clarity
+
+            # Usar cores diferentes para diferentes quadrantes
             c = 'r'
             if ang < 0:
                 c = 'b'
-            ax.plot(x, y, 'o', color=c)
+            ax.plot(x, y, 'o', color=c, markersize=3)
+            valid_points += 1
 
-    # Plot the sensor's origin
+    # Título com estatísticas
+    ax.set_title(f"{title}\n{valid_points} pontos válidos")
+
+    # Plotar a origem do sensor
     ax.plot(0, 0, 'k>', markersize=10)
 
+    # Círculo de limite
+    circle = plt.Circle((0,0), max_sensor_range, fill=False, color='gray', linestyle='--', alpha=0.5)
+    ax.add_artist(circle)
+
+    # Eixos
+    ax.axhline(y=0, color='k', linestyle=':', alpha=0.3)
+    ax.axvline(x=0, color='k', linestyle=':', alpha=0.3)
+
     ax.grid(True)
-    ax.set_xlim([-max_sensor_range, max_sensor_range])
-    ax.set_ylim([-max_sensor_range, max_sensor_range])
-    plt.show()
+    ax.set_xlim([-max_sensor_range*1.1, max_sensor_range*1.1])
+    ax.set_ylim([-max_sensor_range*1.1, max_sensor_range*1.1])
+    ax.set_xlabel('X (m)')
+    ax.set_ylabel('Y (m)')
+
+    if show_plot:
+        plt.show()
+
+    return ax

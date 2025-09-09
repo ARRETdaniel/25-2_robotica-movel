@@ -5,3 +5,7 @@ cd /home/danielterra/Documents/programs/CoppeliaSim_Edu_V4_9_0_rev6_Ubuntu20_04
 cd /home/danielterra/Documents/programs/CoppeliaSim_Edu_V4_9_0_rev6_Ubuntu20_04
 ./coppeliaSim.sh "/media/danielterra/Windows-SSD/Users/danie/Documents/Documents/MESTRADO/25-2_robotica-movel/T1/T1.ttt" &
 cd "/media/danielterra/Windows-SSD/Users/danie/Documents/Documents/MESTRADO/25-2_robotica-movel"
+
+cd /home/danielterra/Documents/programs/CoppeliaSim_Edu_V4_9_0_rev6_Ubuntu20_04
+./coppeliaSim.sh "/media/danielterra/Windows-SSD/Users/danie/Documents/Documents/MESTRADO/25-2_robotica-movel/T1/T1-ex5.ttt" &
+cd "/media/danielterra/Windows-SSD/Users/danie/Documents/Documents/MESTRADO/25-2_robotica-movel"

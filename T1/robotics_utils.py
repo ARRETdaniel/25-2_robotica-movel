@@ -393,3 +393,144 @@ def validate_transformation_matrix(T: np.ndarray) -> bool:
         return False
 
     return True
+
+# TODO: customize the code below to our current solution above.
+# ex5 to 6
+# We need to adapt it to our current solution
+class HokuyoSensorSim(object):
+    """
+    Simulates a Hokuyo laser sensor in CoppeliaSim using vision sensors.
+
+    This class provides an interface to interact with a simulated Hokuyo sensor,
+    typically attached to a robot in CoppeliaSim. It manages the underlying vision
+    sensors and provides methods to retrieve sensor data in either range or point format.
+
+    Attributes:
+        _sim: The simulation API object used to interact with CoppeliaSim.
+        _base_name (str): The name of the base object to which the Hokuyo sensor is attached.
+        _is_range_data (bool): Determines if sensor data is returned as range values (True) or 3D points (False).
+        _base_obj: The handle of the base object in the simulation.
+        _vision_sensors_obj (list): Handles of the vision sensors used to simulate the Hokuyo sensor.
+
+    Args:
+        sim: The simulation API object.
+        base_name (str): The name of the base object (must contain 'fastHokuyo').
+        is_range_data (bool, optional): If True, sensor data is returned as range values. Defaults to False.
+
+    Raises:
+        ValueError: If 'fastHokuyo' is not in the base_name, or if the base object or vision sensors are not found.
+
+    Methods:
+        get_is_range_data() -> bool:
+            Returns whether sensor data is returned as range values.
+
+        set_is_range_data(is_range_data: bool) -> None:
+            Sets whether sensor data should be returned as range values.
+
+        getSensorData():
+            Retrieves sensor data from the vision sensors.
+            Returns either a list of range values or a list of 3D points, depending on _is_range_data.
+    """
+
+    _sim = None
+
+    _base_name = ""
+    _vision_sensor_name_template = "{}/sensor{}"
+
+    # _vision_sensors_obj will be initialized in __init__
+    _base_obj = None
+    _is_range_data = False
+
+    _angle_min=-120*math.pi/180
+    _angle_max=120*math.pi/180
+    _angle_increment=(240/684)*math.pi/180 # angle: 240 deg, pts: 684
+
+    def __init__(self, sim, base_name, is_range_data=True):
+        self._sim = sim
+        self._base_name = base_name
+        self._is_range_data = is_range_data
+
+        if "fastHokuyo" not in base_name:
+            raise ValueError(
+                f"ERR: fastHokuyo must be in the base object name. Ex: `/PioneerP3DX/fastHokuyo`"
+            )
+
+        self._base_obj = sim.getObject(base_name)
+        if self._base_obj == -1:
+            raise ValueError(
+                f"ERR: base_obj ({self._base_obj}) is not a valid name in the simulation"
+            )
+
+        self._vision_sensors_obj = [
+            sim.getObject(self._vision_sensor_name_template.format(self._base_name, 1)),
+            sim.getObject(self._vision_sensor_name_template.format(self._base_name, 2)),
+        ]
+
+        if any(obj == -1 for obj in self._vision_sensors_obj):
+            raise ValueError(
+                f"ERR: the _vision_sensors_obj names are not valid in the simulation"
+            )
+
+    def get_is_range_data(self) -> bool:
+        return self._is_range_data
+
+    def set_is_range_data(self, is_range_data: bool) -> None:
+        self._is_range_data = is_range_data
+
+    def getSensorData(self):
+
+        angle = self._angle_min
+        sensor_data = []
+
+        for vision_sensor in self._vision_sensors_obj:
+            r, t, u = sim.readVisionSensor(vision_sensor)
+            if u:
+                sensorM = sim.getObjectMatrix(vision_sensor)
+                relRefM = sim.getObjectMatrix(self._base_obj)
+                relRefM = sim.getMatrixInverse(relRefM)
+                relRefM = sim.multiplyMatrices(relRefM, sensorM)
+
+                p = [0, 0, 0]
+                p = sim.multiplyVector(sensorM, p)
+                t = [p[0], p[1], p[2], 0, 0, 0]
+                for j in range(int(u[1])):
+                    for k in range(int(u[0])):
+                        w = 2 + 4 * (j * int(u[0]) + k)
+                        v = [u[w], u[w + 1], u[w + 2], u[w + 3]]
+                        angle = angle + self._angle_increment
+                        if self._is_range_data:
+                            sensor_data.append([angle, v[3]])
+                        else:
+                            p = sim.multiplyVector(relRefM, v)
+                            sensor_data.append([p[0], p[1], p[2]])
+
+        return np.array(sensor_data)
+
+"""
+Plots the laser scan data.
+"""
+def draw_laser_data(laser_data, max_sensor_range=5):
+
+    fig = plt.figure(figsize=(6,6), dpi=100)
+    ax = fig.add_subplot(111, aspect='equal')
+
+    # Combine angle and distance data for plotting
+    for ang, dist in laser_data:
+        # Filter out readings that are at the maximum range, as they
+        # likely indicate no object was detected by that beam.
+        if (max_sensor_range - dist) > 0.1:
+            x = dist * np.cos(ang)
+            y = dist * np.sin(ang)
+            # Use different colors for different quadrants for clarity
+            c = 'r'
+            if ang < 0:
+                c = 'b'
+            ax.plot(x, y, 'o', color=c)
+
+    # Plot the sensor's origin
+    ax.plot(0, 0, 'k>', markersize=10)
+
+    ax.grid(True)
+    ax.set_xlim([-max_sensor_range, max_sensor_range])
+    ax.set_ylim([-max_sensor_range, max_sensor_range])
+    plt.show()

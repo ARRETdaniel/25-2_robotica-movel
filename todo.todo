@@ -1,0 +1,19 @@
+now. We need to start the documentation part. We will be using LaTex for this tesk. I have downloaded our overleaf template, you need to unzip (UFMG_relatorios_documentacoes.zip) and start documentation of our implementation.
+
+For the documentation you will be using T1/robotics_utils.py for snap of code that need explanation to the professor, and T1/TP1_ex1-4.ipynb which has the exercise 1 to 4 we need to add how was our thought process to answer the exercises, the same way with TP1_ex5-6.ipynb. WE need to show to the professor our thought process and how we did things and what we have accomplished.
+
+Use snap of code in the LaTeX document when needed while explaining a thought process to answer the TP1. You use LaTeX equations to show used math notations and equations in our documentation.
+We also have images of our implementation, you can use it to show our scenes and parts.
+
+T1/ex2-diagram.drawio.png
+T1/Screenshot-inicial_EX5_6.png
+T1/Screenshot-inicial.png
+T1/scene-T1.png
+T1/Screenshota.png
+T1/Screenshotb.png
+T1/Screenshotc.png
+
+While wrting the document follow the latest ABNT 2 norm, write in PT-BR following the academic stands for documentation writing. Our goal is to get the point of "2. Documentação:" from the TP1.
+
+
+Write the result LaTex with our documentation of our implementation for TP1.

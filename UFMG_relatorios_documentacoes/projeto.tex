@@ -1,0 +1,81 @@
+\chapter{} \label{}
+
+\section{}
+% EXEMPLE HOW TO ADD FIGURES
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=16cm]{Figures/sensors_needed_for_perception-week2-v1-9m.png}
+\caption{Configuração sensorial em VA: tipos e posicionamento estratégico \cite[Week 2 - Lesson 1: Sensors and Computing Hardware. ~9min00s]{University_of_Toronto2018-fe}}
+\label{figura-sensores}
+\end{figure}
+
+% EXEMPLE HOW TO ADD CODE 
+
+\begin{lstlisting}[language=Python, caption=Exemplo de arquivo de parâmetros de placa de parada., label=lst:stop_sign_params]
+X(m), Y(m), Z(m), YAW(deg)
+100.70, 127.00, 38.10, -90
+\end{lstlisting}
+
+% EXEMPLE HOW TO ADD EQUATIONS
+
+\begin{equation} \label{eq:pure_pursuit}
+\delta = \tan^{-1}\left(\frac{2L\sin\alpha}{l_d}\right)
+\end{equation}
+
+\begin{conditions}
+    \delta & Ângulo de direção a ser aplicado (rad); \\
+    L & Distância entre eixos do veículo (m); \\
+    \alpha & Ângulo entre o eixo longitudinal do veículo e o vetor ao ponto-alvo (rad); \\
+    l_d & Distância de look-ahead (m).
+\end{conditions}
+
+% EXEMPLE HOW TO ADD PROMPT
+
+\begin{lstlisting}[style=cmdstyle, caption={Inicialização do simulador CARLA.}, label={lst:start_carla}]
+@echo off
+echo Starting CARLA Simulator...
+cd C:\Users\danie\Documents\Documents\CURSOS\Self-Driving_Cars_Specialization\CarlaSimulator\CarlaUE4\Binaries\Win64
+CarlaUE4.exe /Game/Maps/Course4 -windowed -carla-server -benchmark -fps=30
+\end{lstlisting}
+
+% EXEMPLE HOW TO ADD TABLE
+
+\begin{table}[H]
+\centering
+\begin{tabular}{|l|c|}
+\hline
+\textbf{Métrica} & \textbf{Valor} \\
+\hline
+Tempo médio de detecção & 0,0529 segundos \\
+\hline
+Taxa média de FPS & 18,8895 \\
+\hline
+Total de detecções & 922 \\
+\hline
+Confiança média & 0,7104 \\
+\hline
+Total de avisos gerados & 901 \\
+\hline
+Tempo total de execução & 360,6062 segundos \\
+\hline
+\end{tabular}
+\caption{Métricas de desempenho do sistema de percepção visual no ambiente simulado CARLA (Dados para uma simulação de CLEARNOON).}
+\label{tab:metricas_percepcao}
+\end{table}
+
+% EXEMPLE HOW TO CITE
+
+\citeonline{} especify the autor
+
+\ref{} cite part of the document which has \label{} tag
+
+\cite[p.~number]{} cite a specify page of the citetion
+
+\subsection{}
+
+\subsubsection{}
+
+...
+
+\chapter{}

@@ -8,3 +8,12 @@ delete
 UFMG_relatorios_documentacoes
 UFMG_relatorios_documentacoes.zip
 __pycache__
+trash
+.github
+python
+sim.py
+*.dll
+simConst.py
+TODO.md
+*.ttt
+TP2.pdf

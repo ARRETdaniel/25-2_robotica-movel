@@ -1,22 +1,3 @@
-"""
-Informed RRT* Path Planning Algorithm for Holonomic Robots
-==========================================================
-
-This module implements the Informed RRT* algorithm for holonomic robots.
-Informed RRT* is an extension of RRT* that uses ellipsoidal sampling to focus
-exploration on regions that can improve the current best solution.
-
-Theory Reference:
-- Gammell et al., "Informed RRT*: Optimal Sampling-based Path Planning"
-- Aula 14: Planejamento de Caminhos - PRM e RRT
-- RRT* provides asymptotic optimality
-- Informed sampling focuses on promising regions
-
-Author: Daniel Terra Gomes
-Course: Mobile Robotics - PPGCC/UFMG
-Date: October 2025
-"""
-
 import numpy as np
 import random
 from typing import List, Tuple, Optional, Dict
@@ -29,60 +10,23 @@ from utils.common_utils import (
 
 
 class RRTNode:
-    """
-    Node in the RRT* tree.
-
-    Each node represents a configuration in the free space and stores:
-    - Position (x, y)
-    - Parent node reference
-    - Cost from root (path length)
-    """
 
     def __init__(self, x: float, y: float):
-        """
-        Initialize RRT node.
 
-        Args:
-            x: X-coordinate in meters
-            y: Y-coordinate in meters
-        """
         self.x = x
         self.y = y
         self.parent = None
         self.cost = 0.0
 
     def position(self) -> Tuple[float, float]:
-        """Return node position as tuple."""
         return (self.x, self.y)
 
 
 class InformedRRTStarPlanner:
-    """
-    Informed RRT* path planner for holonomic robots.
-
-    Algorithm phases:
-    1. Initial Phase (RRT*): Build tree until first solution found
-    2. Informed Phase: Focus sampling in ellipsoidal region
-    3. Rewiring: Continuously improve solution quality
-
-    Reference:
-        Based on Gammell et al. (2014) and examples from
-        2b_informed_rrt_star_youbot.ipynb and
-        aula14-planejamento-caminhos-prm-rrt.ipynb
-    """
 
     def __init__(self, mapa: np.ndarray, world_width: float, world_height: float,
                  robot_radius: float, safety_margin: float = 0.1):
-        """
-        Initialize the Informed RRT* planner.
 
-        Args:
-            mapa: Binary occupancy map (1=obstacle, 0=free)
-            world_width: Width of the environment in meters
-            world_height: Height of the environment in meters
-            robot_radius: Radius of the robot in meters
-            safety_margin: Additional safety margin around robot (meters)
-        """
         self.mapa = mapa
         self.world_width = world_width
         self.world_height = world_height
@@ -90,7 +34,6 @@ class InformedRRTStarPlanner:
         self.safety_margin = safety_margin
         self.effective_radius = robot_radius + safety_margin
 
-        # Tree data structures
         self.nodes = []
         self.best_goal_node = None
         self.c_best = float('inf')  # Cost of best solution
@@ -102,35 +45,14 @@ class InformedRRTStarPlanner:
         print(f"  - World size: {world_width} x {world_height} m")
 
     def _distance(self, node1: RRTNode, node2: RRTNode) -> float:
-        """Calculate Euclidean distance between two nodes."""
         return np.sqrt((node1.x - node2.x)**2 + (node1.y - node2.y)**2)
 
     def _distance_to_point(self, node: RRTNode, point: Tuple[float, float]) -> float:
-        """Calculate distance from node to point."""
         return np.sqrt((node.x - point[0])**2 + (node.y - point[1])**2)
 
     def _sample_ellipsoid(self, c_best: float, c_min: float,
                          x_center: np.ndarray, C: np.ndarray) -> Tuple[float, float]:
-        """
-        Sample a point within the informed ellipsoid.
 
-        The ellipsoid is defined by:
-        - Foci at start and goal
-        - Major axis length = c_best (current best cost)
-        - Minor axis length = sqrt(c_best^2 - c_min^2)
-
-        Args:
-            c_best: Cost of best solution found
-            c_min: Minimum possible cost (straight-line distance)
-            x_center: Center of ellipse (midpoint between start and goal)
-            C: Rotation matrix from ellipse frame to world frame
-
-        Returns:
-            Sampled point (x, y) in world coordinates
-
-        Reference:
-            Gammell et al., "Informed RRT*", Section III.C
-        """
         if c_best < float('inf'):
             # Calculate ellipse radii
             r1 = c_best / 2.0  # Semi-major axis
@@ -236,19 +158,7 @@ class InformedRRTStarPlanner:
 
     def _choose_parent(self, near_nodes_list: List[RRTNode], nearest: RRTNode,
                       new_node: RRTNode) -> RRTNode:
-        """
-        Choose the best parent for new_node from near_nodes.
 
-        Best parent minimizes the cost to reach new_node.
-
-        Args:
-            near_nodes_list: List of nearby nodes
-            nearest: Nearest node (default parent)
-            new_node: New node to connect
-
-        Returns:
-            Best parent node
-        """
         if not near_nodes_list:
             return nearest
 
@@ -265,16 +175,7 @@ class InformedRRTStarPlanner:
         return best_parent
 
     def _rewire(self, new_node: RRTNode, near_nodes_list: List[RRTNode]):
-        """
-        Rewire the tree to improve path costs.
 
-        For each node in near_nodes_list, check if routing through new_node
-        would reduce its cost. If so, update its parent.
-
-        Args:
-            new_node: Newly added node
-            near_nodes_list: List of nearby nodes to consider rewiring
-        """
         for node in near_nodes_list:
             if node == new_node.parent:
                 continue
@@ -310,41 +211,7 @@ class InformedRRTStarPlanner:
             goal_sample_rate: float = 0.05, search_radius: float = 2.0,
             goal_threshold: float = 0.3, seed: Optional[int] = None,
             early_termination_iterations: int = 500) -> Optional[List[Tuple[float, float]]]:
-        """
-        Plan a path from start to goal using Informed RRT*.
 
-        Args:
-            start: Start position (x, y) in meters
-            goal: Goal position (x, y) in meters
-            max_iterations: Maximum number of iterations
-            step_size: Step size for extending tree (meters)
-            goal_sample_rate: Probability of sampling goal directly (0-1)
-            search_radius: Radius for rewiring (meters)
-            goal_threshold: Distance threshold to consider goal reached (meters)
-            seed: Random seed for reproducibility (optional)
-            early_termination_iterations: Stop after this many iterations without improvement
-
-        Returns:
-            List of (x, y) waypoints forming the path, or None if no path found
-
-        Algorithm:
-            1. Initialize tree with start node
-            2. For each iteration:
-                a. Sample point (uniformly or in ellipsoid)
-                b. Find nearest node
-                c. Steer toward sample
-                d. Check collision
-                e. Choose best parent from nearby nodes
-                f. Add to tree
-                g. Rewire nearby nodes
-                h. Check if goal reached
-            3. Return best path found
-
-        Performance Optimizations:
-            - Early termination if no improvement after N iterations
-            - Reduced collision checking points (C-space already dilated)
-            - Limited rewiring to most promising candidates
-        """
         print(f"\nPlanning with Informed RRT*:")
         print(f"  Start: {start}")
         print(f"  Goal:  {goal}")
@@ -472,7 +339,7 @@ class InformedRRTStarPlanner:
         if self.best_goal_node is not None:
             path = self._extract_path(self.best_goal_node)
 
-            print(f"\n✓ Planning SUCCESSFUL")
+            print(f"\n Planning SUCCESSFUL")
             print(f"{'=' * 70}")
             print(f"  - Waypoints: {len(path)}")
             print(f"  - Final cost: {self.c_best:.2f} meters")
@@ -484,7 +351,7 @@ class InformedRRTStarPlanner:
 
             return path
         else:
-            print(f"\n✗ Planning FAILED")
+            print(f"\n Planning FAILED")
             print(f"{'=' * 70}")
             print(f"  - No path found after {i + 1} iterations")
             print(f"  - Tree nodes: {len(self.nodes)}")

@@ -1,14 +1,3 @@
-"""
-Robotino Controller for CoppeliaSim - Holonomic Robot
-=====================================================
-
-Based on course examples (aula07-locomocao-modelos-cinematicos-zmq.ipynb)
-
-Author: Daniel Terra Gomes
-Date: October 2025
-Course: Mobile Robotics - TP2
-"""
-
 import numpy as np
 import time
 from coppeliasim_zmqremoteapi_client import RemoteAPIClient
@@ -26,7 +15,7 @@ def Rz(theta):
 class RobotinoController:
     """
     Controller for Robotino omnidirectional robot (3 wheels at 120°).
-    
+
     This follows the exact implementation from course examples.
     """
 
@@ -39,11 +28,11 @@ class RobotinoController:
         self.robot_name = "robotino"
         self.goal_name = "Goal"
         self.wheel_handles = []
-        
+
         # Robotino parameters (from course examples)
         self.L = 0.135  # Distance from center to wheel (m)
         self.r = 0.040  # Wheel radius (m)
-        
+
         # Direct kinematics matrix (from aula07)
         self.Mdir = np.array([
             [-self.r/np.sqrt(3), 0, self.r/np.sqrt(3)],
@@ -69,7 +58,7 @@ class RobotinoController:
             # Get robot handle
             self.robot_handle = self.sim.getObject(f'/{self.robot_name}')
             print(f"✓ Robot found: '/{self.robot_name}' (handle: {self.robot_handle})")
-            
+
             # Get goal handle
             try:
                 self.goal_handle = self.sim.getObject(f'/{self.goal_name}')
@@ -77,7 +66,7 @@ class RobotinoController:
             except:
                 print(f"⚠ Goal object not found")
                 self.goal_handle = None
-            
+
             # Get wheel handles
             wheel_names = ['wheel0_joint', 'wheel1_joint', 'wheel2_joint']
             self.wheel_handles = []
@@ -85,9 +74,9 @@ class RobotinoController:
                 handle = self.sim.getObject(f'/{self.robot_name}/{name}')
                 self.wheel_handles.append(handle)
             print(f"✓ Found 3 wheel joints for omnidirectional control")
-            
+
             return True
-            
+
         except Exception as e:
             print(f"✗ Initialization failed: {e}")
             return False
@@ -120,9 +109,9 @@ class RobotinoController:
     def move_to_goal(self, goal_x, goal_y, goal_theta=None, tolerance=0.05):
         """
         Move robot to goal using proportional control.
-        
+
         This follows the exact pattern from aula09-controle-cinematico.ipynb.
-        
+
         Args:
             goal_x: Goal x position (m)
             goal_y: Goal y position (m)
@@ -134,18 +123,18 @@ class RobotinoController:
             gain = np.diag([0.1, 0.1, 0.1])  # Position + orientation control
         else:
             gain = np.diag([0.3, 0.3, 0.0])  # Position-only control
-        
+
         qgoal = np.array([goal_x, goal_y, goal_theta if goal_theta is not None else 0])
-        
+
         while True:
             # Get current pose
             pos = self.sim.getObjectPosition(self.robot_handle, self.sim.handle_world)
             ori = self.sim.getObjectOrientation(self.robot_handle, self.sim.handle_world)
             q = np.array([pos[0], pos[1], ori[2]])
-            
+
             # Calculate error
             error = qgoal - q
-            
+
             # Check if reached
             position_error = np.linalg.norm(error[:2])
             if position_error < tolerance:
@@ -153,26 +142,26 @@ class RobotinoController:
                 for wheel in self.wheel_handles:
                     self.sim.setJointTargetVelocity(wheel, 0)
                 break
-            
+
             # Controller: proportional control
             qdot = gain @ error
-            
+
             # Inverse kinematics (CRITICAL: rotation happens HERE!)
             # This is the key from aula07 - transform velocities using current orientation
             Minv = np.linalg.inv(Rz(q[2]) @ self.Mdir)
             u = Minv @ qdot
-            
+
             # Send velocities to wheels
             for i, wheel in enumerate(self.wheel_handles):
                 self.sim.setJointTargetVelocity(wheel, u[i])
-            
+
             # Step simulation
             time.sleep(0.01)
 
     def move_along_path(self, path, speed=0.5, tolerance=0.15, visualize=True):
         """
         Move robot along a path of waypoints.
-        
+
         Args:
             path: List of (x, y) waypoints
             speed: Speed scaling factor (0.5-2.0)
@@ -221,17 +210,17 @@ class RobotinoController:
 def test_controller():
     """Test the controller with a simple path."""
     controller = RobotinoController()
-    
+
     if not controller.connect():
         return
-    
+
     if not controller.initialize_scene():
         return
-    
+
     # Get current pose
     x, y, theta = controller.get_robot_pose_2d()
     print(f"\nCurrent robot pose: ({x:.3f}, {y:.3f}, {np.degrees(theta):.1f}°)")
-    
+
     # Test simple square path
     test_path = [
         (x, y),
@@ -240,11 +229,11 @@ def test_controller():
         (x, y + 1.0),
         (x, y)
     ]
-    
+
     controller.start_simulation()
     controller.move_along_path(test_path)
     controller.stop_simulation()
-    
+
     controller.disconnect()
 
 

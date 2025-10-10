@@ -1,25 +1,3 @@
-"""
-Pioneer P3DX Controller for TP2 - Reactive Potential Fields Navigation
-========================================================================
-
-This module provides a controller for the Pioneer P3DX differential drive robot
-in CoppeliaSim, with support for:
-- Differential drive kinematics
-- Velocity control for potential fields navigation
-- **Hokuyo laser sensor integration for reactive obstacle avoidance**
-- Pose tracking and goal handling
-- Simulation lifecycle management
-
-Author: Daniel Terra Gomes
-Course: Mobile Robotics - PPGCC/UFMG
-Date: October 2025
-
-References:
-- TP1_context/robotics_utils.py (Hokuyo sensor integration)
-- Aula 12 - Planejamento Campos Potenciais (Reactive navigation)
-- [De Luca e Oriolo, 1994] and [Desai et al. 1998] for velocity controllers
-"""
-
 import numpy as np
 import time
 import math

@@ -20,9 +20,6 @@ class RoadmapPlanner:
     2. Construction Phase: Build a graph by connecting nearby samples
     3. Query Phase: Connect start/goal to graph and find shortest path
 
-    Reference:
-        Based on examples from 1a_roadmap_youbot.ipynb and
-        aula13-planejamento-caminhos-roadmaps.ipynb
     """
 
     def __init__(self, mapa: np.ndarray, world_width: float, world_height: float,
@@ -50,7 +47,6 @@ class RoadmapPlanner:
         self.samples = []  # List of sampled points
         self.all_points = []  # All points including start and goal
 
-        print(f"Roadmap Planner initialized:")
         print(f"  - Robot radius: {robot_radius:.2f} m")
         print(f"  - Safety margin: {safety_margin:.2f} m")
         print(f"  - Effective radius: {self.effective_radius:.2f} m")
@@ -69,8 +65,6 @@ class RoadmapPlanner:
         Returns:
             Number of successful samples generated
 
-        Reference:
-            generate_random_samples from example notebooks
         """
         print(f"\nSampling {num_samples} random configurations...")
 
@@ -79,7 +73,7 @@ class RoadmapPlanner:
             self.world_width, self.world_height, seed=seed
         )
 
-        print(f"  ✓ Successfully generated {len(self.samples)} collision-free samples")
+        print(f"  Successfully generated {len(self.samples)} collision-free samples")
         return len(self.samples)
 
     def build_roadmap(self, k_nearest: int = 10) -> Dict[str, int]:
@@ -95,14 +89,6 @@ class RoadmapPlanner:
 
         Returns:
             Dictionary with graph statistics (nodes, edges)
-
-        Reference:
-            build_roadmap function from 1a_roadmap_youbot.ipynb
-
-        Theory:
-            - k-nearest neighbor approach balances connectivity and computation
-            - Collision-free edge checking ensures path validity
-            - Edge weights are Euclidean distances for optimal paths
         """
         print(f"\nBuilding roadmap graph (k={k_nearest})...")
 
@@ -145,7 +131,7 @@ class RoadmapPlanner:
             'edges': self.graph.number_of_edges()
         }
 
-        print(f"  ✓ Graph constructed: {stats['nodes']} nodes, {stats['edges']} edges")
+        print(f"  Graph constructed: {stats['nodes']} nodes, {stats['edges']} edges")
 
         return stats
 
@@ -167,13 +153,6 @@ class RoadmapPlanner:
         Returns:
             List of (x, y) waypoints forming the path, or None if no path found
 
-        Reference:
-            find_path function from example notebooks
-
-        Theory:
-            - A* algorithm finds optimal path in graph
-            - Heuristic: Euclidean distance to goal
-            - Guarantees shortest path in the graph structure
         """
         print(f"\nPlanning path from {start} to {goal}...")
 
@@ -181,13 +160,13 @@ class RoadmapPlanner:
         if not is_point_collision_free(start[0], start[1], self.mapa,
                                        self.effective_radius,
                                        self.world_width, self.world_height):
-            print("  ✗ ERROR: Start position is in collision!")
+            print("  ERROR: Start position is in collision!")
             return None
 
         if not is_point_collision_free(goal[0], goal[1], self.mapa,
                                        self.effective_radius,
                                        self.world_width, self.world_height):
-            print("  ✗ ERROR: Goal position is in collision!")
+            print("  ERROR: Goal position is in collision!")
             return None
 
         # Create temporary graph with start and goal
@@ -206,7 +185,7 @@ class RoadmapPlanner:
         )
 
         if not start_connected:
-            print("  ✗ ERROR: Could not connect start to roadmap!")
+            print("  ERROR: Could not connect start to roadmap!")
             return None
 
         # Connect goal to roadmap
@@ -215,7 +194,7 @@ class RoadmapPlanner:
         )
 
         if not goal_connected:
-            print("  ✗ ERROR: Could not connect goal to roadmap!")
+            print("  ERROR: Could not connect goal to roadmap!")
             return None
 
         # Find shortest path using A* algorithm
@@ -240,14 +219,13 @@ class RoadmapPlanner:
                 for i in range(len(path)-1)
             )
 
-            print(f"  ✓ Path found!")
             print(f"    - Waypoints: {len(path)}")
             print(f"    - Length: {path_length:.2f} meters")
 
             return path
 
         except nx.NetworkXNoPath:
-            print("  ✗ ERROR: No path exists between start and goal!")
+            print("  ERROR: No path exists between start and goal!")
             return None
 
     def _connect_point_to_graph(self, point: Tuple[float, float], point_idx: int,
@@ -291,46 +269,6 @@ class RoadmapPlanner:
 
         return connections_made > 0
 
-    def get_graph_edges(self) -> List[Tuple[Tuple[float, float], Tuple[float, float]]]:
-        """
-        Get all edges in the roadmap for visualization.
-
-        Returns:
-            List of edges as tuples of point coordinates: ((x1, y1), (x2, y2))
-        """
-        edges = []
-        for (i, j) in self.graph.edges():
-            p1 = self.samples[i]
-            p2 = self.samples[j]
-            edges.append((p1, p2))
-        return edges
-
-    def get_graph_stats(self) -> Dict[str, any]:
-        """
-        Get statistics about the roadmap graph.
-
-        Returns:
-            Dictionary with graph statistics
-        """
-        if self.graph.number_of_nodes() == 0:
-            return {
-                'nodes': 0,
-                'edges': 0,
-                'connected_components': 0,
-                'average_degree': 0.0
-            }
-
-        # Calculate statistics
-        degrees = [self.graph.degree(n) for n in self.graph.nodes()]
-
-        return {
-            'nodes': self.graph.number_of_nodes(),
-            'edges': self.graph.number_of_edges(),
-            'connected_components': nx.number_connected_components(self.graph),
-            'average_degree': np.mean(degrees) if degrees else 0.0,
-            'max_degree': np.max(degrees) if degrees else 0,
-            'min_degree': np.min(degrees) if degrees else 0
-        }
 
     def plan(self, start: Tuple[float, float], goal: Tuple[float, float],
              num_samples: int = 200, k_nearest: int = 10, k_connect: int = 15,
@@ -350,37 +288,28 @@ class RoadmapPlanner:
 
         Returns:
             Path as list of waypoints, or None if planning failed
-
-        Usage Example:
-            planner = RoadmapPlanner(map, 10.0, 10.0, 0.2)
-            path = planner.plan(start=(1, 1), goal=(9, 9), num_samples=300)
         """
-        print("="*70)
-        print("ROADMAP PATH PLANNING - Complete Pipeline")
-        print("="*70)
-
         # Phase 1: Sampling
         num_generated = self.sample_free_space(num_samples, seed=seed)
 
         if num_generated == 0:
-            print("\n✗ Planning FAILED: No samples could be generated")
+            print("\nPlanning FAILED: No samples could be generated")
             return None
 
         # Phase 2: Graph Construction
         stats = self.build_roadmap(k_nearest=k_nearest)
 
         if stats['edges'] == 0:
-            print("\n✗ Planning FAILED: No edges in graph")
+            print("\nPlanning FAILED: No edges in graph")
             return None
 
         # Phase 3: Path Finding
         path = self.find_path(start, goal, k_connect=k_connect)
 
         if path is None:
-            print("\n✗ Planning FAILED: No path found")
+            print("\nPlanning FAILED: No path found")
         else:
-            print("\n✓ Planning SUCCESSFUL")
+            print("\nPlanning SUCCESSFUL")
 
-        print("="*70)
 
         return path

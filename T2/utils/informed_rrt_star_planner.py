@@ -251,10 +251,6 @@ class InformedRRTStarPlanner:
         iterations_without_improvement = 0
         last_improvement_iteration = 0
 
-        print(f"\n{'=' * 70}")
-        print("INFORMED RRT* PATH PLANNING - Optimized Pipeline")
-        print(f"{'=' * 70}\n")
-
         # Main loop
         for i in range(max_iterations):
             # Early termination check
@@ -339,8 +335,6 @@ class InformedRRTStarPlanner:
         if self.best_goal_node is not None:
             path = self._extract_path(self.best_goal_node)
 
-            print(f"\n Planning SUCCESSFUL")
-            print(f"{'=' * 70}")
             print(f"  - Waypoints: {len(path)}")
             print(f"  - Final cost: {self.c_best:.2f} meters")
             print(f"  - Tree nodes: {len(self.nodes)}")
@@ -351,8 +345,6 @@ class InformedRRTStarPlanner:
 
             return path
         else:
-            print(f"\n Planning FAILED")
-            print(f"{'=' * 70}")
             print(f"  - No path found after {i + 1} iterations")
             print(f"  - Tree nodes: {len(self.nodes)}")
 

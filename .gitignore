@@ -17,3 +17,8 @@ simConst.py
 TODO.md
 *.ttt
 TP2.pdf
+*.zip
+!cave-PioneerP3DX.ttt
+!cave-robotino.ttt
+!paredes-PioneerP3DX.ttt
+!paredes-robotino.ttt

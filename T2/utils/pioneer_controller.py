@@ -11,7 +11,6 @@ class PioneerController:
 
     This controller implements differential drive kinematics and provides
     methods for velocity-based control suitable for reactive potential fields navigation.
-    **Now includes Hokuyo laser sensor for real-time obstacle detection.**
 
     Attributes:
         sim: CoppeliaSim API interface
@@ -248,7 +247,6 @@ class PioneerController:
         print("Starting simulation...")
         self.sim.startSimulation()
         time.sleep(0.5)
-        print("✓ Simulation started")
 
     def stop_simulation(self):
         """Stop CoppeliaSim simulation."""
@@ -257,91 +255,17 @@ class PioneerController:
         time.sleep(0.1)
         self.sim.stopSimulation()
         time.sleep(0.5)
-        print("✓ Simulation stopped")
 
     def disconnect(self):
         """Disconnect from CoppeliaSim."""
         try:
             if self.sim and self.sim.getSimulationState() != self.sim.simulation_stopped:
                 self.stop_simulation()
-            print("✓ Disconnected from CoppeliaSim")
         except:
             pass
 
-
-def test_controller():
-    """Test the Pioneer controller with basic movements."""
-    print("\n=== Testing Pioneer Controller ===\n")
-
-    # Create and connect
-    controller = PioneerController()
-
-    if not controller.connect():
-        return
-
-    if not controller.initialize_scene():
-        return
-
-    # Get initial pose
-    x, y, theta = controller.get_robot_pose_2d()
-    print(f"\nInitial pose: ({x:.3f}, {y:.3f}, {np.degrees(theta):.1f}°)")
-
-    # Get goal
-    goal = controller.get_goal_position()
-    if goal:
-        print(f"Goal position: ({goal[0]:.3f}, {goal[1]:.3f})")
-
-    # Test laser sensor
-    print("\nTesting Hokuyo laser sensor...")
-    laser_data = controller.get_laser_data()
-    if laser_data is not None:
-        print(f"Laser readings: {len(laser_data)} points")
-        valid_readings = np.sum(laser_data[:, 1] < 4.5)  # Count readings < max range
-        print(f"Valid obstacle detections: {valid_readings}")
-
-    # Start simulation
-    controller.start_simulation()
-
-    try:
-        # Test 1: Move forward
-        print("\nTest 1: Moving forward...")
-        controller.set_velocities(v=0.2, omega=0.0)
-        time.sleep(2.0)
-        controller.stop()
-
-        x, y, theta = controller.get_robot_pose_2d()
-        print(f"Pose after forward: ({x:.3f}, {y:.3f}, {np.degrees(theta):.1f}°)")
-
-        # Check laser again
-        laser_data = controller.get_laser_data()
-        if laser_data is not None:
-            min_dist = np.min(laser_data[:, 1])
-            print(f"Minimum obstacle distance: {min_dist:.2f}m")
-
-        time.sleep(0.5)
-
-        # Test 2: Rotate in place
-        print("\nTest 2: Rotating in place...")
-        controller.set_velocities(v=0.0, omega=0.5)
-        time.sleep(2.0)
-        controller.stop()
-
-        x, y, theta = controller.get_robot_pose_2d()
-        print(f"Pose after rotation: ({x:.3f}, {y:.3f}, {np.degrees(theta):.1f}°)")
-
-        print("\n✓ Controller tests completed successfully!")
-
-    except Exception as e:
-        print(f"\n✗ Test failed: {e}")
-
-    finally:
-        # Stop and disconnect
-        controller.stop_simulation()
-        controller.disconnect()
-
-
 # === Hokuyo Laser Sensor Class ===
-# Adapted from TP1_context/robotics_utils.py
+# Same as TP1_context/robotics_utils.py
 
 class HokuyoSensorSim:
     """
@@ -482,7 +406,3 @@ class HokuyoSensorSim:
             raise ValueError("ERR: No sensor data obtained")
 
         return np.array(sensor_data)
-
-
-if __name__ == "__main__":
-    test_controller()

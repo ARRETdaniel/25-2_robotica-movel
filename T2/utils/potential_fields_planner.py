@@ -56,9 +56,6 @@ class PotentialFieldsPlanner:
 
         Returns:
             Distance field in meters
-
-        Reference:
-            Based on 2a_campos_potenciais_youbot.ipynb
         """
         # Create obstacle mask
         obstacles = self.mapa > 0.5
@@ -135,9 +132,6 @@ class PotentialFieldsPlanner:
 
         Returns:
             Attractive force vector [fx, fy]
-
-        Reference:
-            Aula 12, slide sobre potencial atrativo
         """
         direction = goal - current
         distance = np.linalg.norm(direction)
@@ -165,10 +159,6 @@ class PotentialFieldsPlanner:
 
         Returns:
             Repulsive force vector [fx, fy]
-
-        Reference:
-            Aula 12, slides sobre potencial repulsivo
-            [Khatib, 1986]
         """
         # Get distance to nearest obstacle
         d_obs = self._get_distance_to_obstacle(current[0], current[1])
@@ -220,27 +210,23 @@ class PotentialFieldsPlanner:
 
         Returns:
             List of waypoints [(x, y), ...] from start to goal
-
-        Reference:
-            Based on 2a_campos_potenciais_youbot.ipynb
         """
         # Initialize trajectory
         self.trajectory = [start]
         current = np.array(start, dtype=float)
         goal_array = np.array(goal, dtype=float)
 
-        print(f"Starting potential fields navigation:")
-        print(f"  Start: ({start[0]:.2f}, {start[1]:.2f})")
-        print(f"  Goal: ({goal[0]:.2f}, {goal[1]:.2f})")
-        print(f"  Parameters: k_att={self.k_att}, k_rep={self.k_rep}, d0={self.d0}m")
+        print(f"Start: ({start[0]:.2f}, {start[1]:.2f})")
+        print(f"Goal: ({goal[0]:.2f}, {goal[1]:.2f})")
+        print(f"Parameters: k_att={self.k_att}, k_rep={self.k_rep}, d0={self.d0}m")
 
         for iteration in range(max_iterations):
             # Check if goal reached
             distance_to_goal = np.linalg.norm(current - goal_array)
             if distance_to_goal < goal_threshold:
                 self.trajectory.append(tuple(current))
-                print(f"✓ Goal reached in {iteration} iterations!")
-                print(f"  Final distance to goal: {distance_to_goal:.3f} m")
+                print(f"Goal reached in {iteration} iterations!")
+                print(f"Final distance to goal: {distance_to_goal:.3f} m")
                 return self.trajectory
 
             # Calculate total force
@@ -249,9 +235,9 @@ class PotentialFieldsPlanner:
 
             # Check for local minimum
             if force_magnitude < force_threshold:
-                print(f"✗ Stuck in local minimum at iteration {iteration}")
-                print(f"  Current position: ({current[0]:.2f}, {current[1]:.2f})")
-                print(f"  Distance to goal: {distance_to_goal:.2f} m")
+                print(f"Stuck in local minimum at iteration {iteration}")
+                print(f"Current position: ({current[0]:.2f}, {current[1]:.2f})")
+                print(f"Distance to goal: {distance_to_goal:.2f} m")
                 return self.trajectory
 
             # Normalize and take step
@@ -269,8 +255,8 @@ class PotentialFieldsPlanner:
             if (iteration + 1) % 100 == 0:
                 print(f"  Iteration {iteration + 1}: distance to goal = {distance_to_goal:.2f} m")
 
-        print(f"✗ Maximum iterations ({max_iterations}) reached")
-        print(f"  Final distance to goal: {distance_to_goal:.2f} m")
+        print(f"Maximum iterations ({max_iterations}) reached")
+        print(f"Final distance to goal: {distance_to_goal:.2f} m")
         return self.trajectory
 
     def visualize_potential_field(self, goal: Tuple[float, float], resolution: int = 50):

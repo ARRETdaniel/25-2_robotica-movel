@@ -437,6 +437,10 @@ class HokuyoSensorSim(object):
     _sim = None
 
     _base_name = ""
+    # Updated naming pattern for Kobuki's fastHokuyo sensor (TP3)
+    # For Pioneer, use "{}/sensor{}" - for Kobuki, use "{}/fastHokuyo_sensor{}"
+    #_vision_sensor_name_template = "{}/fastHokuyo_sensor{}"
+    # note sensor may be inside of fastHokuyo_joint1 for TP3, need to check in CoppeliaSim
     _vision_sensor_name_template = "{}/sensor{}"
 
     # _vision_sensors_obj will be initialized in __init__

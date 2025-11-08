@@ -5,7 +5,8 @@ This package contains utility modules for the Occupancy Grid Mapping project:
 - tp3_utils: Reused code from TP1 (transformations, sensor handling, visualization)
 - kobuki_controller: Kobuki robot controller (differential drive)
 - occupancy_grid_mapper: Occupancy Grid algorithm implementation
-- exploration_planner: Simple exploration navigation strategy
+- exploration_planner: Simple exploration navigation strategy (reactive)
+- goal_based_exploration_planner: Goal-based exploration with RUTF escape (NEW)
 
 Author: Daniel Terra Gomes
 Course: Mobile Robotics - PPGCC/UFMG
@@ -25,6 +26,7 @@ from .tp3_utils import (
 from .kobuki_controller import KobukiController
 from .occupancy_grid_mapper import OccupancyGridMapper
 from .exploration_planner import ExplorationPlanner
+from .planner import GoalBasedExplorationPlanner
 
 __all__ = [
     'CoppeliaSimConnector',
@@ -32,6 +34,7 @@ __all__ = [
     'KobukiController',
     'OccupancyGridMapper',
     'ExplorationPlanner',
+    'GoalBasedExplorationPlanner',
     'create_homogeneous_matrix',
     'invert_homogeneous_matrix',
     'plot_frame',

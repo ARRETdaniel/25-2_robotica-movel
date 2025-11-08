@@ -1,1 +1,51 @@
-make the aula18 readible as md
+Our current #file:planner.py  solution is working better. But we have an issue our robot
+should only move in the direction that the sensor is pointing in order to avoid
+collision because the robot will be using the laser data. In our current solution our robot is moving "beckward"
+to the laser view sometimes when trying to avoid obstacles and get unstuck , if our robot is stuck it should rotate and then move in the direction
+of the goal if we have a clear view (not obstable ahead).
+
+LATER PROMOT: Our collision sensor, is sometimes
+ignoring obstacles.
+
+LATER: create a grid with 50% prob before the simulator start to be updated in
+ real time while the robot is moving.
+
+
+ LATER: update the planner class to be able to reserve a position (x,y) as init goal
+ i want to use the position (x: +2 , y: +4) as a goal for the robot to reach in order
+  to explore the env.
+
+We need to validate our #file:planner.py for the #file:TP3_OccupancyGrid.ipynb . So we can accomplish the #file:TP3.md  #file:T3.instructions.md  .
+
+Keep our #file:TP3_OccupancyGrid.ipynb clean and without emoji and symbles (professional).
+
+Note: our exploration solution must be able to dial with dynamic env(we will have a human wallking by) .
+Keep our utils well commented so we can know in the future why we have done something in a specific way .
+
+Fetch CoppeliaSim  documentation, and read #TP3.md. Above all you must be 100% sure of your proposed conclusion/solution, and MUST back it up (validate) the conclusion/solution with official documentation for CoppeliaSim 4.10.0  and Occupancy Grid.
+
+Our implementation should focus the simplicity in order to achieve our TP3 #TP3.md instructions.
+
+Always re use code from #T1 and #T2 folders when possible! The coppeliam connection, control and basic and advanced robot movements and etc should be re used from #T1 and #T2 folders.
+
+Remember, you must ALWAYS fetch Latest documentation contextual information at docs in order to reference your analyses and codes implementation. Fetch docs related to the analyses we are about to do or the code we are about to implemented:
+
+
+You MUST follow CoppeliaSim  documentation:
+https://manual.coppeliarobotics.com/
+
+Follow the links in the pages, to expand you context. You must do it, so you have more contextual information:
+
+https://manual.coppeliarobotics.com/
+https://manual.coppeliarobotics.com/en/remoteApiOverview.htm
+https://manual.coppeliarobotics.com/en/zmqRemoteApiOverview.htm
+https://manual.coppeliarobotics.com/en/objects.htm
+
+YOU MUST use the following pattern for documentation search on CoppeliaSim  official doc, you must fully read the pages before writing code:
+
+https://manual.coppeliarobotics.com/
+https://manual.coppeliarobotics.com/en/meansOfCommunication.htm
+https://manual.coppeliarobotics.com/en/scenes.htm
+
+Kobuki robot specifications:
+https://yujinrobot.github.io/kobuki/enAppendixKobukiParameters.html

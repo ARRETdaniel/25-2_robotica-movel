@@ -28,13 +28,13 @@ Created **multi-layer reactive strategy** based on TP2 Potential Fields:
 ```
 Layer 1: EMERGENCY (d < 0.15m)
   → Stop + aggressive turn + backward motion
-  
+
 Layer 2: VERY CLOSE (0.15m < d < 0.30m)
   → Slow down + strong turn
-  
+
 Layer 3: CLOSE (0.30m < d < 0.80m)
   → Moderate avoidance
-  
+
 Layer 4: CLEAR (d > 0.80m)
   → Nominal velocity + gentle steering
 ```
@@ -159,11 +159,11 @@ Run three 60-second simulations with different cell sizes:
 1. **Cell 19 with `CELL_SIZE = 0.01`**
    - Grid: 1000×1000 cells
    - Expected: Very detailed map, longer computation time
-   
+
 2. **Cell 19 with `CELL_SIZE = 0.1`** (recommended)
    - Grid: 100×100 cells
    - Expected: Good balance between detail and speed
-   
+
 3. **Cell 19 with `CELL_SIZE = 0.5`**
    - Grid: 20×20 cells
    - Expected: Low detail, fast computation
@@ -179,7 +179,7 @@ Run **at least 2 experiments** from different starting positions:
 1. Run Cell 19 with robot at position A
    - Save occupancy grid
    - Save incremental plot (trajectory + laser points)
-   
+
 2. Run Cell 19 with robot at position B
    - Save occupancy grid
    - Save incremental plot
@@ -195,7 +195,7 @@ Run **at least 2 experiments** with moving obstacles (human walking):
 1. Run Cell 19 - Human path variation 1
    - Observe robot reacting to moving obstacle
    - Save occupancy grid and trajectory
-   
+
 2. Run Cell 19 - Human path variation 2
    - Observe different dynamic scenario
    - Save results

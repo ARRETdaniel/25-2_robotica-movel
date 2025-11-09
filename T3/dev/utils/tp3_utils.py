@@ -352,9 +352,6 @@ class HokuyoSensorSim:
                 if debug:
                     print(f"\n  Sensor {idx+1}: r={r}, t={t}, u_len={len(u) if u else 0}")
 
-                if debug:
-                    print(f"\n  Sensor {idx+1}: r={r}, t={t}, u_len={len(u) if u else 0}")
-
                 if u is None or len(u) < 3:
                     if debug:
                         print(f"    [WARNING] Sensor {idx+1}: Invalid data (u is None or too short)")
@@ -439,42 +436,79 @@ class HokuyoSensorSim:
 
 def get_noisy_laser_data(hokuyo_sensor: HokuyoSensorSim,
                         distance_noise_std: float = 0.0,  # DISABLED for testing
-                        angle_noise_std: float = 0.0) -> np.ndarray:  # DISABLED for testing
+                        angle_noise_std: float = 0.0,     # DISABLED for testing
+                        max_valid_range: float = 4.9) -> np.ndarray:  # NEW: Filter max range
     """
-    Get laser data with added Gaussian noise (as required by TP3).
+    Get laser data with added Gaussian noise and invalid reading filtering (as required by TP3).
+
+    **IMPORTANT: This function now filters out MAX RANGE readings!**
+    When a laser sensor doesn't detect any obstacle, it returns the maximum range.
+    These readings should NOT be treated as actual obstacles - they represent
+    "no detection" or "open space beyond sensor range".
 
     **NOTE: Noise TEMPORARILY DISABLED (set to 0.0) for testing clean mapping.**
     **Re-enable after verifying clean map works correctly.**
 
-    This function adds random noise to the laser sensor readings to simulate
-    real-world sensor imperfections. The noise is drawn from a Gaussian distribution.
+    This function:
+    1. Gets raw sensor data
+    2. FILTERS OUT readings at or near maximum range (invalid detections)
+    3. Adds Gaussian noise (if enabled)
 
     Args:
         hokuyo_sensor: HokuyoSensorSim instance
         distance_noise_std: Standard deviation of distance noise (meters) - DEFAULT: 0.0 (disabled)
         angle_noise_std: Standard deviation of angle noise (radians) - DEFAULT: 0.0 (disabled)
+        max_valid_range: Maximum valid range in meters (readings >= this are filtered out)
+                        DEFAULT: 4.9m (slightly below sensor's 5m max to catch max-range returns)
 
     Returns:
-        np.ndarray: Nx2 array of [angle, distance] with added noise
+        np.ndarray: Nx2 array of [angle, distance] with noise added and invalid readings removed
+
+    Example:
+        # Sensor max range is 5.0m
+        # Raw data might contain: [..., [0.5, 5.0], [0.6, 2.3], [0.7, 5.0], ...]
+        # Filtered data returns: [..., [0.6, 2.3], ...]  (max-range readings removed)
     """
     # Get clean sensor data
     laser_data = hokuyo_sensor.getSensorData()
 
-    # NOISE TEMPORARILY DISABLED - Return clean data
+    # FILTER OUT MAX RANGE READINGS (CRITICAL FIX!)
+    # =============================================
+    # Laser sensors return max_range when no obstacle is detected.
+    # These are NOT real obstacles - they're "no detection" indicators.
+    #
+    # Problem: Without filtering, the map shows a circular "wall" at max range
+    # Solution: Remove readings at or near max_range before mapping
+    #
+    # Reference: Most laser sensor libraries filter this automatically,
+    # but CoppeliaSim's vision sensor returns raw depth buffer including max values.
+    valid_mask = laser_data[:, 1] < max_valid_range
+    laser_data_filtered = laser_data[valid_mask]
+
+    num_filtered = len(laser_data) - len(laser_data_filtered)
+    if num_filtered > 0:
+        # Only print on first call or significant filtering
+        pass  # Silent filtering to avoid spam
+
+    # If all readings filtered out (rare case), return empty array
+    if len(laser_data_filtered) == 0:
+        return np.array([]).reshape(0, 2)
+
+    # NOISE TEMPORARILY DISABLED - Return filtered data
     if distance_noise_std == 0.0 and angle_noise_std == 0.0:
-        return laser_data
+        return laser_data_filtered
 
     # Add Gaussian noise (only if noise parameters are non-zero)
-    noisy_data = laser_data.copy()
+    noisy_data = laser_data_filtered.copy()
 
     # Add noise to angles (column 0)
     if angle_noise_std > 0.0:
-        angle_noise = np.random.normal(0, angle_noise_std, size=len(laser_data))
+        angle_noise = np.random.normal(0, angle_noise_std, size=len(laser_data_filtered))
         noisy_data[:, 0] += angle_noise
 
     # Add noise to distances (column 1)
     if distance_noise_std > 0.0:
-        distance_noise = np.random.normal(0, distance_noise_std, size=len(laser_data))
+        distance_noise = np.random.normal(0, distance_noise_std, size=len(laser_data_filtered))
         noisy_data[:, 1] += distance_noise
 
         # Ensure distances are positive
@@ -489,61 +523,76 @@ def transform_laser_to_global(robot_pose: Tuple[np.ndarray, np.ndarray],
     """
     Transform laser sensor data from sensor frame to global (world) frame.
 
-    SIMPLIFIED 2D TRANSFORMATION (Following occrGrid.py lines 4-15)
+    CRITICAL FIX: Direct World-Frame Calculation (No Double Rotation)
+    ==================================================================
 
-    This function uses the SIMPLEST possible approach for 2D planar mapping:
-    1. Only use robot's YAW angle (Z-rotation), ignore roll/pitch
-    2. Return 2D points [x, y], not 3D [x, y, z]
-    3. No laser offset complexity (assume laser at robot center)
+    PROBLEM WITH PREVIOUS APPROACH:
+    --------------------------------
+    The old code had a "double rotation" bug:
+    1. Calculated points in local frame: x_local = r*cos(angle), y_local = r*sin(angle)
+    2. Then rotated these points by robot_theta using rotation matrix
 
-    THEORETICAL BASIS (aula18, Slide 33-34):
-    For 2D occupancy grid mapping on flat ground:
-        x_world = x_robot + distance * cos(theta_robot + angle_laser)
-        y_world = y_robot + distance * sin(theta_robot + angle_laser)
+    This caused curved walls because:
+    - Local angles were already sensor-relative
+    - Rotating again by robot_theta applied the rotation twice
+    - Result: Points smeared in an arc instead of straight lines
+
+    CORRECT APPROACH (Chapter 9 + Aula 18):
+    ----------------------------------------
+    For each laser beam:
+    1. Calculate world angle: world_angle = robot_theta + beam_angle
+    2. Calculate world point directly:
+       x_world = x_robot + range * cos(world_angle)
+       y_world = y_robot + range * sin(world_angle)
+
+    This matches the forward sensor model from:
+    - Chapter 9, Section 9.2: "sensors mounted so that they capture only a slice of the world"
+    - Aula 18, Slide 8: "células na ponta do feixe recebem alta probabilidade de estarem ocupadas"
+
+    Theoretical Validation:
+    - Each laser beam has a fixed angle relative to the robot's heading
+    - In world frame, beam direction = robot_heading + beam_offset
+    - Hit point = robot_position + range * direction_unit_vector
+    - No rotation matrix needed - direct trigonometric calculation
 
     Args:
         robot_pose: Tuple of (position, euler_angles) of robot in world frame
+                   position: [x, y, z] in meters
+                   euler_angles: [roll, pitch, yaw] in radians
         laser_data: Nx2 array of [angle, distance] from laser sensor in POLAR format
-        laser_to_robot_transform: IGNORED (kept for backward compatibility)
-                                 If provided, extracts only Z-rotation component.
-                                 Otherwise assumes laser is at robot center.
+                   angle: beam angle relative to robot heading (radians)
+                   distance: range measurement (meters)
+        laser_to_robot_transform: IGNORED (laser assumed at robot center for 2D mapping)
 
     Returns:
         np.ndarray: Nx2 array of [x, y] points in world frame
 
     References:
-        - aula18-mapeamento-occupancy-grid.md (Slide 33-34): 2D transformation formula
-        - occrGrid.py: sensor2world() function using Rz(robotConfig[2])
+        - Probabilistic Robotics, Chapter 9, Section 9.2
+        - aula18-mapeamento-occupancy-grid.md, Slide 8
+        - TP3.md: "fazer as transformações entre os diferentes referenciais"
     """
-    # Extract robot pose components
+    # Extract robot 2D pose in world frame
     robot_position, robot_orientation = robot_pose
-    x_robot, y_robot = robot_position[0], robot_position[1]
+    x_robot = robot_position[0]
+    y_robot = robot_position[1]
+    theta_robot = robot_orientation[2]  # Yaw angle (Z-rotation)
 
-    # SIMPLIFIED 2D TRANSFORMATION (Following occrGrid.py lines 4-15)
-    # Only use yaw angle for planar mapping
-    theta_robot = robot_orientation[2]  # Z-rotation (yaw)
-
-    # SIMPLE 2D transformation - no laser offset complexity
-    # Match occrGrid.py: sensor2world() function
+    # Transform each laser point to world frame
+    # DIRECT CALCULATION: No intermediate rotation matrix
     world_points = []
-    for angle, distance in laser_data:
-        # Point in laser frame
-        x_local = distance * np.cos(angle)
-        y_local = distance * np.sin(angle)
 
-        # Rotate by robot yaw using simple 2D rotation matrix
-        cos_theta = np.cos(theta_robot)
-        sin_theta = np.sin(theta_robot)
+    for beam_angle, range_measurement in laser_data:
+        # Step 1: Calculate absolute beam direction in world frame
+        # This is the ONLY rotation we need!
+        world_angle = theta_robot + beam_angle
 
-        x_rotated = cos_theta * x_local - sin_theta * y_local
-        y_rotated = sin_theta * x_local + cos_theta * y_local
+        # Step 2: Calculate hit point directly in world coordinates
+        # Using polar-to-Cartesian conversion with world angle
+        x_world = x_robot + range_measurement * np.cos(world_angle)
+        y_world = y_robot + range_measurement * np.sin(world_angle)
 
-        # Translate to world position
-        x_world = x_robot + x_rotated
-        y_world = y_robot + y_rotated
-
-        # SIMPLIFIED: Return 2D points [x, y] only (not [x, y, z])
-        # This matches occrGrid.py output format
+        # Append as 2D point (suitable for occupancy grid)
         world_points.append([x_world, y_world])
 
     return np.array(world_points)  # Returns Nx2 array

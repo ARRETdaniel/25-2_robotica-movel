@@ -6,3 +6,5 @@ docs
 old
 todo.todo
 *.lua
+debug
+*.todo

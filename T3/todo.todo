@@ -1,3 +1,9 @@
+https-towardsdatascience-com-what-and-why-of-log-odds-64ba988bf704
+
+Try gemini again, sent prompt again.
+
+sent output to copilet from preivous output
++++++++++++
 Our current #file:planner.py  solution is working better. But we have an issue our robot
 should only move in the direction that the sensor is pointing in order to avoid
 collision because the robot will be using the laser data. In our current solution our robot is moving "beckward"
@@ -20,7 +26,7 @@ Our kobuki current script setup of the sensor are at #file:fastHokuyo.lua ( #fil
 
 We need to validate our #file:planner.py for the #file:TP3_OccupancyGrid.ipynb . So we can accomplish the #file:TP3.md  #file:T3.instructions.md  .
 
-Keep our #file:TP3_OccupancyGrid.ipynb clean and without emoji and symbles (professional).
+Keep our #file:TP3_OccupancyGrid.ipynb clean (tests in tests folder, simple call in the notebook) and without emoji and symbles (professional).
 
 Note: our exploration solution must be able to dial with dynamic env(we will have a human wallking by) as seen in #file:print of the cena tp3 dinamico.png  .
 

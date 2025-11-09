@@ -408,4 +408,3 @@ class WallFollower:
                 print(status)
 
         return v, w
-

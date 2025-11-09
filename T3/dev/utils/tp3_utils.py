@@ -49,10 +49,10 @@ class CoppeliaSimConnector:
         try:
             self.client = RemoteAPIClient()
             self.sim = self.client.require('sim')
-            print("✓ Successfully connected to CoppeliaSim")
+            print("[OK] Successfully connected to CoppeliaSim")
             return True
         except Exception as e:
-            print(f"✗ Connection failed: {e}")
+            print(f"[ERROR] Connection failed: {e}")
             print("  Make sure CoppeliaSim is running with ZMQ remote API enabled")
             return False
 
@@ -126,7 +126,7 @@ class CoppeliaSimConnector:
             return position, orientation
 
         except Exception as e:
-            print(f"✗ Failed to get pose for {object_name}: {e}")
+            print(f"[ERROR] Failed to get pose for {object_name}: {e}")
             return None
 
 
@@ -296,7 +296,7 @@ class HokuyoSensorSim:
         if any(obj == -1 for obj in self._vision_sensors_obj):
             raise ValueError(f"ERROR: Vision sensors not found for '{base_name}'")
 
-        print(f"✓ Initialized Hokuyo sensor: {base_name}")
+        print(f"[OK] Initialized Hokuyo sensor: {base_name}")
 
     def get_is_range_data(self) -> bool:
         """Returns whether sensor returns range data or point data."""
@@ -306,9 +306,16 @@ class HokuyoSensorSim:
         """Set whether sensor should return range data or point data."""
         self._is_range_data = is_range_data
 
-    def getSensorData(self) -> np.ndarray:
+    def getSensorData(self, debug: bool = False) -> np.ndarray:
         """
         Retrieve sensor data from the vision sensors.
+
+        CRITICAL: In synchronous mode (sim.setStepping(True)), vision sensors
+        may need explicit handling via sim.handleVisionSensor() before reading.
+        Reference: https://manual.coppeliarobotics.com/en/visionSensors.htm
+
+        Args:
+            debug: Enable detailed debug logging for sensor data pipeline
 
         Returns:
             np.ndarray: Nx2 array of [angle, distance] for range data
@@ -321,13 +328,36 @@ class HokuyoSensorSim:
         sensor_data = []
         max_sensor_range = 5.0  # Maximum sensor range in meters
 
+        if debug:
+            print(f"\n[DEBUG] HokuyoSensorSim.getSensorData() called")
+            print(f"  Base: {self._base_name}")
+            print(f"  Vision sensors: {len(self._vision_sensors_obj)}")
+            print(f"  Range data mode: {self._is_range_data}")
+
         try:
             # Process each vision sensor
-            for vision_sensor in self._vision_sensors_obj:
+            for idx, vision_sensor in enumerate(self._vision_sensors_obj):
+                # CRITICAL FIX: In synchronous mode, explicitly handle vision sensor
+                # before reading to ensure fresh data
+                # Reference: CoppeliaSim ZMQ RemoteAPI documentation
+                try:
+                    self._sim.handleVisionSensor(vision_sensor)
+                except:
+                    # handleVisionSensor may not be needed in all CoppeliaSim versions
+                    pass
+
                 # Read vision sensor data
                 r, t, u = self._sim.readVisionSensor(vision_sensor)
 
+                if debug:
+                    print(f"\n  Sensor {idx+1}: r={r}, t={t}, u_len={len(u) if u else 0}")
+
+                if debug:
+                    print(f"\n  Sensor {idx+1}: r={r}, t={t}, u_len={len(u) if u else 0}")
+
                 if u is None or len(u) < 3:
+                    if debug:
+                        print(f"    [WARNING] Sensor {idx+1}: Invalid data (u is None or too short)")
                     continue
 
                 # Get sensor transformation matrices
@@ -340,10 +370,16 @@ class HokuyoSensorSim:
                 rows = int(u[1]) if len(u) > 1 else 0
                 cols = int(u[0]) if len(u) > 0 else 0
 
+                if debug:
+                    print(f"    Resolution: {cols}x{rows}")
+
                 if rows == 0 or cols == 0:
+                    if debug:
+                        print(f"    [WARNING] Sensor {idx+1}: Zero resolution")
                     continue
 
                 # Process sensor data points
+                points_processed = 0
                 for j in range(rows):
                     for k in range(cols):
                         # Calculate index with bounds checking
@@ -369,12 +405,32 @@ class HokuyoSensorSim:
                             sensor_data.append([p[0], p[1], p[2]])
 
                         angle = current_angle
+                        points_processed += 1
+
+                if debug:
+                    print(f"    Points processed: {points_processed}")
 
         except Exception as e:
+            if debug:
+                print(f"\n[ERROR] Exception during sensor data processing: {e}")
+                import traceback
+                traceback.print_exc()
             raise ValueError(f"ERROR: Failed to process laser data: {e}")
 
         if len(sensor_data) == 0:
+            if debug:
+                print(f"\n[ERROR] No valid sensor data obtained from any sensor")
             raise ValueError("ERROR: No valid sensor data obtained")
+
+        if debug:
+            data_array = np.array(sensor_data)
+            print(f"\n[DEBUG] Final sensor data:")
+            print(f"  Total points: {len(sensor_data)}")
+            if self._is_range_data:
+                print(f"  Angle range: [{np.rad2deg(data_array[:,0].min()):.1f}°, {np.rad2deg(data_array[:,0].max()):.1f}°]")
+                print(f"  Distance range: [{data_array[:,1].min():.3f}m, {data_array[:,1].max():.3f}m]")
+                print(f"  Min distances: {data_array[:,1].min():.3f}m")
+                print(f"  Max distances: {data_array[:,1].max():.3f}m")
 
         return np.array(sensor_data)
 
@@ -382,18 +438,21 @@ class HokuyoSensorSim:
 # === NEW: Sensor Noise and Coordinate Transformation Functions for TP3 ===
 
 def get_noisy_laser_data(hokuyo_sensor: HokuyoSensorSim,
-                        distance_noise_std: float = 0.02,
-                        angle_noise_std: float = 0.005) -> np.ndarray:
+                        distance_noise_std: float = 0.0,  # DISABLED for testing
+                        angle_noise_std: float = 0.0) -> np.ndarray:  # DISABLED for testing
     """
     Get laser data with added Gaussian noise (as required by TP3).
+
+    **NOTE: Noise TEMPORARILY DISABLED (set to 0.0) for testing clean mapping.**
+    **Re-enable after verifying clean map works correctly.**
 
     This function adds random noise to the laser sensor readings to simulate
     real-world sensor imperfections. The noise is drawn from a Gaussian distribution.
 
     Args:
         hokuyo_sensor: HokuyoSensorSim instance
-        distance_noise_std: Standard deviation of distance noise (meters)
-        angle_noise_std: Standard deviation of angle noise (radians)
+        distance_noise_std: Standard deviation of distance noise (meters) - DEFAULT: 0.0 (disabled)
+        angle_noise_std: Standard deviation of angle noise (radians) - DEFAULT: 0.0 (disabled)
 
     Returns:
         np.ndarray: Nx2 array of [angle, distance] with added noise
@@ -401,19 +460,25 @@ def get_noisy_laser_data(hokuyo_sensor: HokuyoSensorSim,
     # Get clean sensor data
     laser_data = hokuyo_sensor.getSensorData()
 
-    # Add Gaussian noise
+    # NOISE TEMPORARILY DISABLED - Return clean data
+    if distance_noise_std == 0.0 and angle_noise_std == 0.0:
+        return laser_data
+
+    # Add Gaussian noise (only if noise parameters are non-zero)
     noisy_data = laser_data.copy()
 
     # Add noise to angles (column 0)
-    angle_noise = np.random.normal(0, angle_noise_std, size=len(laser_data))
-    noisy_data[:, 0] += angle_noise
+    if angle_noise_std > 0.0:
+        angle_noise = np.random.normal(0, angle_noise_std, size=len(laser_data))
+        noisy_data[:, 0] += angle_noise
 
     # Add noise to distances (column 1)
-    distance_noise = np.random.normal(0, distance_noise_std, size=len(laser_data))
-    noisy_data[:, 1] += distance_noise
+    if distance_noise_std > 0.0:
+        distance_noise = np.random.normal(0, distance_noise_std, size=len(laser_data))
+        noisy_data[:, 1] += distance_noise
 
-    # Ensure distances are positive
-    noisy_data[:, 1] = np.maximum(noisy_data[:, 1], 0.01)
+        # Ensure distances are positive
+        noisy_data[:, 1] = np.maximum(noisy_data[:, 1], 0.01)
 
     return noisy_data
 
@@ -424,56 +489,64 @@ def transform_laser_to_global(robot_pose: Tuple[np.ndarray, np.ndarray],
     """
     Transform laser sensor data from sensor frame to global (world) frame.
 
-    This is the CORE transformation function required by TP3. It performs the
-    sequence of transformations: Laser -> Robot -> World
+    SIMPLIFIED 2D TRANSFORMATION (Following occrGrid.py lines 4-15)
 
-    Based on TP1 Exercise 5-6 implementation.
+    This function uses the SIMPLEST possible approach for 2D planar mapping:
+    1. Only use robot's YAW angle (Z-rotation), ignore roll/pitch
+    2. Return 2D points [x, y], not 3D [x, y, z]
+    3. No laser offset complexity (assume laser at robot center)
+
+    THEORETICAL BASIS (aula18, Slide 33-34):
+    For 2D occupancy grid mapping on flat ground:
+        x_world = x_robot + distance * cos(theta_robot + angle_laser)
+        y_world = y_robot + distance * sin(theta_robot + angle_laser)
 
     Args:
         robot_pose: Tuple of (position, euler_angles) of robot in world frame
-        laser_data: Nx2 array of [angle, distance] from laser sensor
-        laser_to_robot_transform: Optional 4x4 transform from laser to robot frame.
-                                 If None, uses a default transform.
+        laser_data: Nx2 array of [angle, distance] from laser sensor in POLAR format
+        laser_to_robot_transform: IGNORED (kept for backward compatibility)
+                                 If provided, extracts only Z-rotation component.
+                                 Otherwise assumes laser is at robot center.
 
     Returns:
-        np.ndarray: Nx3 array of [x, y, z] points in world frame
+        np.ndarray: Nx2 array of [x, y] points in world frame
+
+    References:
+        - aula18-mapeamento-occupancy-grid.md (Slide 33-34): 2D transformation formula
+        - occrGrid.py: sensor2world() function using Rz(robotConfig[2])
     """
-    # Step 1: Create robot-to-world transformation matrix
+    # Extract robot pose components
     robot_position, robot_orientation = robot_pose
-    W_T_R = create_homogeneous_matrix(robot_position, robot_orientation)
+    x_robot, y_robot = robot_position[0], robot_position[1]
 
-    # Step 2: Define laser-to-robot transformation (if not provided)
-    if laser_to_robot_transform is None:
-        # Default: Laser is mounted on robot with small offset
-        # For Kobuki: laser is approximately at robot center, slightly elevated
-        laser_pos_in_robot = np.array([0.0, 0.0, 0.1])  # 10cm above robot center
-        laser_orient_in_robot = np.array([0.0, 0.0, 0.0])  # No rotation
-        R_T_L = create_homogeneous_matrix(laser_pos_in_robot, laser_orient_in_robot)
-    else:
-        R_T_L = laser_to_robot_transform
+    # SIMPLIFIED 2D TRANSFORMATION (Following occrGrid.py lines 4-15)
+    # Only use yaw angle for planar mapping
+    theta_robot = robot_orientation[2]  # Z-rotation (yaw)
 
-    # Step 3: Compute laser-to-world transformation
-    W_T_L = W_T_R @ R_T_L
-
-    # Step 4: Convert laser readings (angle, distance) to points in laser frame
-    # In laser frame: x = distance * cos(angle), y = distance * sin(angle), z = 0
-    laser_points_local = []
-    for angle, distance in laser_data:
-        x_laser = distance * np.cos(angle)
-        y_laser = distance * np.sin(angle)
-        z_laser = 0.0
-        laser_points_local.append([x_laser, y_laser, z_laser, 1.0])  # Homogeneous coordinates
-
-    laser_points_local = np.array(laser_points_local)
-
-    # Step 5: Transform all points to world frame
+    # SIMPLE 2D transformation - no laser offset complexity
+    # Match occrGrid.py: sensor2world() function
     world_points = []
-    for point_homogeneous in laser_points_local:
-        # Apply transformation: W_p = W_T_L @ L_p
-        point_world = W_T_L @ point_homogeneous
-        world_points.append(point_world[:3])  # Extract [x, y, z]
+    for angle, distance in laser_data:
+        # Point in laser frame
+        x_local = distance * np.cos(angle)
+        y_local = distance * np.sin(angle)
 
-    return np.array(world_points)
+        # Rotate by robot yaw using simple 2D rotation matrix
+        cos_theta = np.cos(theta_robot)
+        sin_theta = np.sin(theta_robot)
+
+        x_rotated = cos_theta * x_local - sin_theta * y_local
+        y_rotated = sin_theta * x_local + cos_theta * y_local
+
+        # Translate to world position
+        x_world = x_robot + x_rotated
+        y_world = y_robot + y_rotated
+
+        # SIMPLIFIED: Return 2D points [x, y] only (not [x, y, z])
+        # This matches occrGrid.py output format
+        world_points.append([x_world, y_world])
+
+    return np.array(world_points)  # Returns Nx2 array
 
 
 # === Visualization Utilities ===
@@ -552,6 +625,73 @@ def plot_trajectory_and_points(trajectory: List[Tuple[float, float]],
     ax.set_xlabel('X (m)')
     ax.set_ylabel('Y (m)')
     ax.set_title(title)
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    ax.set_aspect('equal')
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_incremental_map(robot_trajectory: List[Tuple[float, float]],
+                         all_laser_points: List,
+                         sample_points: int = 5,
+                         max_range: float = 4.95,
+                         point_size: int = 2,
+                         alpha: float = 0.6,
+                         color: str = 'r') -> None:
+    """
+    Produce an incremental plot that closely matches TP1 Exercise 6 appearance.
+
+    Behavior and defaults chosen to reproduce TP1 visuals:
+    - Downsample points by `sample_points` (every N-th point) to avoid overplotting
+    - Filter out max-range readings (>= max_range) to remove spurious distant points
+    - Plot laser points as small red dots with semi-transparency
+    - Overlay robot trajectory as a red line with start/end markers
+
+    Args:
+        robot_trajectory: list of (x, y, theta) robot poses in world frame
+        all_laser_points: flat list of [x, y, z] laser points in world frame
+        sample_points: keep every N-th point when plotting (default 5)
+        max_range: distance threshold used to consider a reading valid for plotting
+        point_size: marker size for laser points (default 2 to match TP1)
+        alpha: marker alpha (default 0.6 as in TP1)
+        color: color of laser points (default 'r' to match TP1)
+    """
+    # Convert to numpy array for efficient processing
+    if len(all_laser_points) == 0:
+        print("Warning: No laser points to plot")
+        return
+
+    all_pts = np.array(all_laser_points)
+
+    # Downsample points for cleaner visualization
+    sampled_pts = all_pts[::sample_points]
+
+    # Filter by distance from origin (approximate max-range filter)
+    if sampled_pts.shape[1] >= 2:
+        dists = np.linalg.norm(sampled_pts[:, :2], axis=1)
+        mask = dists < max_range
+        sampled_pts = sampled_pts[mask]
+
+    print(f"Plotting {len(sampled_pts):,} / {len(all_pts):,} points ({100*len(sampled_pts)/len(all_pts):.1f}%)")
+
+    fig, ax = plt.subplots(figsize=(12, 10))
+
+    # Plot sampled laser points
+    if len(sampled_pts) > 0:
+        ax.scatter(sampled_pts[:, 0], sampled_pts[:, 1], c=color, s=point_size,
+                  alpha=alpha, marker='.', label='Laser Points')
+
+    # Plot trajectory
+    if len(robot_trajectory) > 0:
+        traj = np.array(robot_trajectory)
+        ax.plot(traj[:, 0], traj[:, 1], '-', color='k', linewidth=1.5, label='Trajectory')
+        ax.plot(traj[0, 0], traj[0, 1], 'go', markersize=8, label='Start')
+        ax.plot(traj[-1, 0], traj[-1, 1], 'ro', markersize=8, label='End')
+
+    ax.set_xlabel('X (m)')
+    ax.set_ylabel('Y (m)')
+    ax.set_title('Incremental Map (TP1 Style - Downsampled & Filtered)')
     ax.legend()
     ax.grid(True, alpha=0.3)
     ax.set_aspect('equal')

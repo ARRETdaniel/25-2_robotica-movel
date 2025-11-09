@@ -85,10 +85,10 @@ class KobukiController:
         try:
             self.client = RemoteAPIClient()
             self.sim = self.client.require('sim')
-            print("✓ Connected to CoppeliaSim")
+            print("[OK] Connected to CoppeliaSim")
             return True
         except Exception as e:
-            print(f"✗ Connection failed: {e}")
+            print(f"[ERROR] Connection failed: {e}")
             print("  Make sure CoppeliaSim is running with ZMQ remote API enabled")
             return False
 
@@ -107,7 +107,7 @@ class KobukiController:
         try:
             # Get robot handle
             self.robot_handle = self.sim.getObject(f'/{self.robot_name}')
-            print(f"✓ Found robot: {self.robot_name} (handle: {self.robot_handle})")
+            print(f"[OK] Found robot: {self.robot_name} (handle: {self.robot_handle})")
 
             # Get motor handles
             # For Kobuki robot, motors are nested deep in the hierarchy:
@@ -121,37 +121,60 @@ class KobukiController:
                 self.right_motor = self.sim.getObject(
                     f'/{self.robot_name}/wheel_right_drop_sensor/wheel_right_drop_respondable/kobuki_rightMotor'
                 )
-                print(f"✓ Found motors: kobuki_leftMotor, kobuki_rightMotor")
+                print(f"[OK] Found motors: kobuki_leftMotor, kobuki_rightMotor")
             except:
                 # Try simpler patterns for other robots
                 try:
                     self.left_motor = self.sim.getObject(f'/{self.robot_name}/leftMotor')
                     self.right_motor = self.sim.getObject(f'/{self.robot_name}/rightMotor')
-                    print(f"✓ Found motors: leftMotor, rightMotor")
+                    print(f"[OK] Found motors: leftMotor, rightMotor")
                 except:
                     try:
                         self.left_motor = self.sim.getObject(f'/{self.robot_name}/motorLeft')
                         self.right_motor = self.sim.getObject(f'/{self.robot_name}/motorRight')
-                        print(f"✓ Found motors: motorLeft, motorRight")
+                        print(f"[OK] Found motors: motorLeft, motorRight")
                     except:
                         # Try alternative names
                         self.left_motor = self.sim.getObject(f'/{self.robot_name}/leftWheel')
                         self.right_motor = self.sim.getObject(f'/{self.robot_name}/rightWheel')
-                        print(f"✓ Found motors: leftWheel, rightWheel")
+                        print(f"[OK] Found motors: leftWheel, rightWheel")
 
             # Initialize Hokuyo laser sensor (same approach as T2's PioneerController)
             try:
                 hokuyo_name = f'/{self.robot_name}/fastHokuyo'
                 self.hokuyo_sensor = HokuyoSensorSim(self.sim, hokuyo_name, is_range_data=True)
-                print(f"✓ Initialized Hokuyo laser sensor via direct vision sensor reading")
+                print(f"[OK] Initialized Hokuyo laser sensor via direct vision sensor reading")
+
+                # Get laser-to-robot transformation from scene for ACCURATE coordinate transforms
+                # NOTE: For 2D occupancy grid mapping, we primarily need the X/Y offset.
+                # The Z-rotation is not used (laser is aligned with robot's heading).
+                # This transform accounts for cases where laser is NOT at robot center.
+                # Reference: aula18 Slide 33-34 (coordinate transformation)
+                try:
+                    from .tp3_utils import create_homogeneous_matrix
+                    laser_handle = self.sim.getObject(hokuyo_name)
+                    laser_pos = self.sim.getObjectPosition(laser_handle, self.robot_handle)
+                    laser_orient = self.sim.getObjectOrientation(laser_handle, self.robot_handle)
+                    self.laser_to_robot_transform = create_homogeneous_matrix(
+                        np.array(laser_pos), np.array(laser_orient)
+                    )
+                    print(f"[OK] Laser-to-Robot transform acquired for offset correction:")
+                    print(f"    Position offset: [{laser_pos[0]:.4f}, {laser_pos[1]:.4f}, {laser_pos[2]:.4f}]")
+                    print(f"    Orientation: [{laser_orient[0]:.4f}, {laser_orient[1]:.4f}, {laser_orient[2]:.4f}]")
+                except Exception as e:
+                    self.laser_to_robot_transform = None
+                    print(f"[WARNING] Could not get laser-to-robot transform: {e}")
+                    print(f"  Using default (laser at robot center)")
+
             except Exception as e:
-                print(f"⚠ Hokuyo sensor not available: {e}")
+                print(f"[WARNING] Hokuyo sensor not available: {e}")
                 self.hokuyo_sensor = None
+                self.laser_to_robot_transform = None
 
             return True
 
         except Exception as e:
-            print(f"✗ Scene initialization failed: {e}")
+            print(f"[ERROR] Scene initialization failed: {e}")
             return False
 
     def set_velocity(self, v: float, w: float) -> None:
@@ -223,7 +246,7 @@ class KobukiController:
 
         return x, y, theta
 
-    def get_laser_data(self) -> Optional[np.ndarray]:
+    def get_laser_data(self, debug: bool = False) -> Optional[np.ndarray]:
         """
         Get current laser sensor data for reactive obstacle avoidance.
 
@@ -233,17 +256,27 @@ class KobukiController:
         The fastHokuyo sensor consists of 2 vision sensors that provide
         depth map data, which is processed into laser-like range readings.
 
+        CRITICAL: In synchronous mode, sensors are explicitly handled before reading.
+
+        Args:
+            debug: Enable detailed debug logging for sensor data pipeline
+
         Returns:
             numpy.ndarray: Nx2 array of [angle, distance] readings, or None if no sensor
                           Expected: 684 points spanning 240° (-120° to +120°)
         """
         if self.hokuyo_sensor is None:
+            if debug:
+                print("[DEBUG] get_laser_data: No Hokuyo sensor initialized")
             return None
 
         try:
-            return self.hokuyo_sensor.getSensorData()
+            return self.hokuyo_sensor.getSensorData(debug=debug)
         except Exception as e:
-            print(f"⚠ Failed to get laser data: {e}")
+            print(f"[WARNING] Failed to get laser data: {e}")
+            if debug:
+                import traceback
+                traceback.print_exc()
             return None
 
     def move_forward(self, v: float = 0.2, duration: float = 1.0) -> None:
@@ -281,53 +314,3 @@ class KobukiController:
                 self.stop()
             except:
                 pass
-
-
-# === Helper Functions ===
-
-def test_kobuki_controller():
-    """
-    Test function to verify Kobuki controller is working correctly.
-
-    This function:
-    1. Connects to CoppeliaSim
-    2. Initializes the Kobuki robot
-    3. Tests basic movements
-    4. Retrieves and prints pose
-    """
-    print("=" * 60)
-    print("KOBUKI CONTROLLER TEST")
-    print("=" * 60)
-
-    # Create controller
-    controller = KobukiController(robot_name='Kobuki')
-
-    # Connect to CoppeliaSim
-    if not controller.connect():
-        print("Failed to connect. Exiting test.")
-        return
-
-    # Initialize scene
-    if not controller.initialize_scene():
-        print("Failed to initialize scene. Exiting test.")
-        return
-
-    # Get initial pose
-    x, y, theta = controller.get_pose_2d()
-    print(f"\nInitial pose: x={x:.3f}, y={y:.3f}, theta={theta:.3f} rad")
-
-    # Test laser sensor (if available)
-    if controller.hokuyo_sensor is not None:
-        print("\nTesting laser sensor...")
-        laser_data = controller.get_laser_data()
-        if laser_data is not None:
-            print(f"  Laser data: {len(laser_data)} points")
-            print(f"  Sample points: {laser_data[:5]}")
-
-    print("\n✓ Controller test completed successfully")
-    print("=" * 60)
-
-
-if __name__ == "__main__":
-    # Run test if this module is executed directly
-    test_kobuki_controller()

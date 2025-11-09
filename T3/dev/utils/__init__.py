@@ -25,16 +25,14 @@ from .tp3_utils import (
 
 from .kobuki_controller import KobukiController
 from .occupancy_grid_mapper import OccupancyGridMapper
-from .exploration_planner import ExplorationPlanner
-from .planner import GoalBasedExplorationPlanner
+from .wall_follower import WallFollower
 
 __all__ = [
     'CoppeliaSimConnector',
     'HokuyoSensorSim',
     'KobukiController',
     'OccupancyGridMapper',
-    'ExplorationPlanner',
-    'GoalBasedExplorationPlanner',
+    'WallFollower',
     'create_homogeneous_matrix',
     'invert_homogeneous_matrix',
     'plot_frame',

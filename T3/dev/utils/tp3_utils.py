@@ -266,10 +266,9 @@ class HokuyoSensorSim:
         self._base_name = base_name
         self._is_range_data = is_range_data
 
-        # Hokuyo specifications
-        self._angle_min = -120 * math.pi / 180  # -120 degrees
-        self._angle_max = 120 * math.pi / 180   # +120 degrees
-        self._angle_increment = (240 / 684) * math.pi / 180  # 240 deg, 684 points
+        # NOTE: Angle calculation removed - angles are now read directly from
+        # fastHokuyo Lua script via buffer signals. This fixes the geometric
+        # errors caused by assuming linear angle spacing in vision sensors.
 
         # Validate and get sensor handles
         if "fastHokuyo" not in base_name:
@@ -282,21 +281,23 @@ class HokuyoSensorSim:
         if self._base_obj == -1:
             raise ValueError(f"ERROR: Base object '{base_name}' not found in simulation")
 
-        # Get vision sensor handles (fastHokuyo uses 2 vision sensors)
-        # Using simplified path - CoppeliaSim will find unique aliases in hierarchy
-        # Colleague's working solution: sensor1 and sensor2 (not fastHokuyo_sensor1)
-        # Using colleague's proven working template: fastHokuyo_sensor1, fastHokuyo_sensor2
+        # Vision sensor handles are no longer needed - we read from buffer signals
+        # However, we keep them for backward compatibility with other code
         vision_sensor_template = "{}/fastHokuyo_sensor{}"
-        self._vision_sensors_obj = [
-            sim.getObject(vision_sensor_template.format(base_name, 1)),
-            sim.getObject(vision_sensor_template.format(base_name, 2)),
-        ]
-
-
-        if any(obj == -1 for obj in self._vision_sensors_obj):
-            raise ValueError(f"ERROR: Vision sensors not found for '{base_name}'")
+        try:
+            self._vision_sensors_obj = [
+                sim.getObject(vision_sensor_template.format(base_name, 1)),
+                sim.getObject(vision_sensor_template.format(base_name, 2)),
+            ]
+            if any(obj == -1 for obj in self._vision_sensors_obj):
+                # Not critical since we use buffer signals now
+                self._vision_sensors_obj = []
+        except:
+            # Vision sensors are optional now
+            self._vision_sensors_obj = []
 
         print(f"[OK] Initialized Hokuyo sensor: {base_name}")
+        print(f"     Using buffer signal API for angle/range data")
 
     def get_is_range_data(self) -> bool:
         """Returns whether sensor returns range data or point data."""
@@ -308,11 +309,20 @@ class HokuyoSensorSim:
 
     def getSensorData(self, debug: bool = False) -> np.ndarray:
         """
-        Retrieve sensor data from the vision sensors.
+        Retrieve sensor data from fastHokuyo using buffer signals.
 
-        CRITICAL: In synchronous mode (sim.setStepping(True)), vision sensors
-        may need explicit handling via sim.handleVisionSensor() before reading.
-        Reference: https://manual.coppeliarobotics.com/en/visionSensors.htm
+        CRITICAL FIX: Read angles directly from sensor (calculated by fastHokuyo).
+        This avoids incremental angle calculation errors that caused scattered points.
+
+        Why this fix is necessary:
+        - Vision sensors use tangent-based unprojection from depth images
+        - Angles are NOT linearly spaced (perspective projection distortion)
+        - Previous implementation assumed linear spacing → geometric errors
+        - FastHokuyo Lua script calculates correct angles using atan2(x, z)
+
+        Reference: Colleague's working solution + CoppeliaSim buffer signals docs
+        https://manual.coppeliarobotics.com/en/properties.htm (Signals section)
+        https://manual.coppeliarobotics.com/en/regularApi/simGetBufferProperty.htm
 
         Args:
             debug: Enable detailed debug logging for sensor data pipeline
@@ -324,112 +334,60 @@ class HokuyoSensorSim:
         Raises:
             ValueError: If no valid sensor data could be obtained
         """
-        angle = self._angle_min
-        sensor_data = []
-        max_sensor_range = 5.0  # Maximum sensor range in meters
-
-        if debug:
-            print(f"\n[DEBUG] HokuyoSensorSim.getSensorData() called")
-            print(f"  Base: {self._base_name}")
-            print(f"  Vision sensors: {len(self._vision_sensors_obj)}")
-            print(f"  Range data mode: {self._is_range_data}")
-
         try:
-            # Process each vision sensor
-            for idx, vision_sensor in enumerate(self._vision_sensors_obj):
-                # CRITICAL FIX: In synchronous mode, explicitly handle vision sensor
-                # before reading to ensure fresh data
-                # Reference: CoppeliaSim ZMQ RemoteAPI documentation
-                try:
-                    self._sim.handleVisionSensor(vision_sensor)
-                except:
-                    # handleVisionSensor may not be needed in all CoppeliaSim versions
-                    pass
+            # Read pre-calculated angles and distances from fastHokuyo buffer signals
+            # These are calculated correctly by the Lua script using sensor geometry
+            # Buffer properties are the modern CoppeliaSim 4.10+ API (replaces string signals)
+            range_buffer = self._sim.getBufferProperty(
+                self._sim.handle_scene,
+                "signal.hokuyo_range_data",
+                {'noError': True}  # Silent errors for cleaner output
+            )
+            angle_buffer = self._sim.getBufferProperty(
+                self._sim.handle_scene,
+                "signal.hokuyo_angle_data",
+                {'noError': True}
+            )
 
-                # Read vision sensor data
-                r, t, u = self._sim.readVisionSensor(vision_sensor)
+            if not range_buffer or not angle_buffer:
+                raise ValueError(
+                    "ERROR: Hokuyo signals not available. "
+                    "Check that fastHokuyo.lua exports both range_data and angle_data signals."
+                )
 
-                if debug:
-                    print(f"\n  Sensor {idx+1}: r={r}, t={t}, u_len={len(u) if u else 0}")
+            # Unpack float arrays from buffer signals
+            ranges = self._sim.unpackFloatTable(range_buffer)
+            angles = self._sim.unpackFloatTable(angle_buffer)
 
-                if u is None or len(u) < 3:
-                    if debug:
-                        print(f"    [WARNING] Sensor {idx+1}: Invalid data (u is None or too short)")
-                    continue
+            if len(ranges) != len(angles):
+                raise ValueError(
+                    f"ERROR: Angle/range count mismatch: "
+                    f"{len(angles)} angles vs {len(ranges)} ranges"
+                )
 
-                # Get sensor transformation matrices
-                sensorM = self._sim.getObjectMatrix(vision_sensor)
-                relRefM = self._sim.getObjectMatrix(self._base_obj)
-                relRefM = self._sim.getMatrixInverse(relRefM)
-                relRefM = self._sim.multiplyMatrices(relRefM, sensorM)
+            if debug:
+                print(f"\n[DEBUG] HokuyoSensorSim.getSensorData()")
+                print(f"  Total points: {len(ranges)}")
+                print(f"  Angle range: [{np.rad2deg(min(angles)):.1f}°, "
+                      f"{np.rad2deg(max(angles)):.1f}°]")
+                print(f"  Distance range: [{min(ranges):.3f}m, {max(ranges):.3f}m]")
 
-                # Get sensor dimensions
-                rows = int(u[1]) if len(u) > 1 else 0
-                cols = int(u[0]) if len(u) > 0 else 0
-
-                if debug:
-                    print(f"    Resolution: {cols}x{rows}")
-
-                if rows == 0 or cols == 0:
-                    if debug:
-                        print(f"    [WARNING] Sensor {idx+1}: Zero resolution")
-                    continue
-
-                # Process sensor data points
-                points_processed = 0
-                for j in range(rows):
-                    for k in range(cols):
-                        # Calculate index with bounds checking
-                        w = 2 + 4 * (j * cols + k)
-
-                        if w + 3 >= len(u):
-                            continue
-
-                        # Extract point data [x, y, z, distance]
-                        v = [u[w], u[w + 1], u[w + 2], u[w + 3]]
-                        current_angle = angle + self._angle_increment
-
-                        # Validate distance
-                        if not np.isfinite(v[3]) or v[3] <= 0:
-                            v[3] = max_sensor_range
-
-                        if self._is_range_data:
-                            # Store [angle, distance]
-                            sensor_data.append([current_angle, min(v[3], max_sensor_range)])
-                        else:
-                            # Transform to base frame and store [x, y, z]
-                            p = self._sim.multiplyVector(relRefM, v)
-                            sensor_data.append([p[0], p[1], p[2]])
-
-                        angle = current_angle
-                        points_processed += 1
-
-                if debug:
-                    print(f"    Points processed: {points_processed}")
+            if self._is_range_data:
+                # Return [angle, distance] pairs
+                return np.column_stack([angles, ranges])
+            else:
+                # Convert to Cartesian [x, y, z] in sensor frame
+                # For occupancy grid mapping, we typically use range data mode
+                x = np.array(ranges) * np.cos(np.array(angles))
+                y = np.array(ranges) * np.sin(np.array(angles))
+                z = np.zeros(len(ranges))
+                return np.column_stack([x, y, z])
 
         except Exception as e:
             if debug:
-                print(f"\n[ERROR] Exception during sensor data processing: {e}")
                 import traceback
                 traceback.print_exc()
             raise ValueError(f"ERROR: Failed to process laser data: {e}")
-
-        if len(sensor_data) == 0:
-            if debug:
-                print(f"\n[ERROR] No valid sensor data obtained from any sensor")
-            raise ValueError("ERROR: No valid sensor data obtained")
-
-        if debug:
-            data_array = np.array(sensor_data)
-            print(f"\n[DEBUG] Final sensor data:")
-            print(f"  Total points: {len(sensor_data)}")
-            if self._is_range_data:
-                print(f"  Angle range: [{np.rad2deg(data_array[:,0].min()):.1f}°, {np.rad2deg(data_array[:,0].max()):.1f}°]")
-                print(f"  Distance range: [{data_array[:,1].min():.3f}m, {data_array[:,1].max():.3f}m]")
-                print(f"  Min distances: {data_array[:,1].min():.3f}m")
-                print(f"  Max distances: {data_array[:,1].max():.3f}m")
-
-        return np.array(sensor_data)
 
 
 # === NEW: Sensor Noise and Coordinate Transformation Functions for TP3 ===

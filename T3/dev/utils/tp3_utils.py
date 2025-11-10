@@ -1,24 +1,16 @@
 """
 TP3 - Utilities Module (Reused from TP1 and TP2)
+This module contains utility functions and classes for TP3 - Occupancy Grid Mapping.
 
-This module contains reusable classes and functions for the Occupancy Grid Mapping project:
-- CoppeliaSim connection and communication
-- Hokuyo laser sensor interface
-- Spatial transformations (homogeneous matrices)
-- Sensor noise simulation
-- Data transformation between reference frames
-
-Author: Daniel Terra Gomes
+Author: Daniel Terra Gomes (Mat: 2025702870)
 Course: Mobile Robotics - PPGCC/UFMG
 Date: November 2025
 """
-
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 import math
 from typing import Dict, List, Tuple, Optional
 from coppeliasim_zmqremoteapi_client import RemoteAPIClient
-
 
 class CoppeliaSimConnector:
     """
@@ -256,7 +248,6 @@ class HokuyoSensorSim:
     def __init__(self, sim, base_name: str, is_range_data: bool = True):
         """
         Initialize Hokuyo sensor interface.
-
         Args:
             sim: CoppeliaSim API object
             base_name: Name of the sensor base (must contain 'fastHokuyo')
@@ -266,11 +257,6 @@ class HokuyoSensorSim:
         self._base_name = base_name
         self._is_range_data = is_range_data
 
-        # NOTE: Angle calculation removed - angles are now read directly from
-        # fastHokuyo Lua script via buffer signals. This fixes the geometric
-        # errors caused by assuming linear angle spacing in vision sensors.
-
-        # Validate and get sensor handles
         if "fastHokuyo" not in base_name:
             raise ValueError(
                 f"ERROR: 'fastHokuyo' must be in the base object name. "
@@ -281,8 +267,6 @@ class HokuyoSensorSim:
         if self._base_obj == -1:
             raise ValueError(f"ERROR: Base object '{base_name}' not found in simulation")
 
-        # Vision sensor handles are no longer needed - we read from buffer signals
-        # However, we keep them for backward compatibility with other code
         vision_sensor_template = "{}/fastHokuyo_sensor{}"
         try:
             self._vision_sensors_obj = [
@@ -290,10 +274,8 @@ class HokuyoSensorSim:
                 sim.getObject(vision_sensor_template.format(base_name, 2)),
             ]
             if any(obj == -1 for obj in self._vision_sensors_obj):
-                # Not critical since we use buffer signals now
                 self._vision_sensors_obj = []
         except:
-            # Vision sensors are optional now
             self._vision_sensors_obj = []
 
         print(f"[OK] Initialized Hokuyo sensor: {base_name}")
@@ -310,20 +292,12 @@ class HokuyoSensorSim:
     def getSensorData(self, debug: bool = False) -> np.ndarray:
         """
         Retrieve sensor data from fastHokuyo using buffer signals.
-
         CRITICAL FIX: Read angles directly from sensor (calculated by fastHokuyo).
         This avoids incremental angle calculation errors that caused scattered points.
-
-        Why this fix is necessary:
         - Vision sensors use tangent-based unprojection from depth images
         - Angles are NOT linearly spaced (perspective projection distortion)
-        - Previous implementation assumed linear spacing → geometric errors
         - FastHokuyo Lua script calculates correct angles using atan2(x, z)
-
-        Reference: Colleague's working solution + CoppeliaSim buffer signals docs
-        https://manual.coppeliarobotics.com/en/properties.htm (Signals section)
-        https://manual.coppeliarobotics.com/en/regularApi/simGetBufferProperty.htm
-
+        CoppeliaSim buffer signals docs
         Args:
             debug: Enable detailed debug logging for sensor data pipeline
 
@@ -335,9 +309,6 @@ class HokuyoSensorSim:
             ValueError: If no valid sensor data could be obtained
         """
         try:
-            # Read pre-calculated angles and distances from fastHokuyo buffer signals
-            # These are calculated correctly by the Lua script using sensor geometry
-            # Buffer properties are the modern CoppeliaSim 4.10+ API (replaces string signals)
             range_buffer = self._sim.getBufferProperty(
                 self._sim.handle_scene,
                 "signal.hokuyo_range_data",
@@ -355,7 +326,6 @@ class HokuyoSensorSim:
                     "Check that fastHokuyo.lua exports both range_data and angle_data signals."
                 )
 
-            # Unpack float arrays from buffer signals
             ranges = self._sim.unpackFloatTable(range_buffer)
             angles = self._sim.unpackFloatTable(angle_buffer)
 
@@ -373,11 +343,8 @@ class HokuyoSensorSim:
                 print(f"  Distance range: [{min(ranges):.3f}m, {max(ranges):.3f}m]")
 
             if self._is_range_data:
-                # Return [angle, distance] pairs
                 return np.column_stack([angles, ranges])
             else:
-                # Convert to Cartesian [x, y, z] in sensor frame
-                # For occupancy grid mapping, we typically use range data mode
                 x = np.array(ranges) * np.cos(np.array(angles))
                 y = np.array(ranges) * np.sin(np.array(angles))
                 z = np.zeros(len(ranges))
@@ -389,28 +356,13 @@ class HokuyoSensorSim:
                 traceback.print_exc()
             raise ValueError(f"ERROR: Failed to process laser data: {e}")
 
-
-# === NEW: Sensor Noise and Coordinate Transformation Functions for TP3 ===
-
+#desibled, in for reference
 def get_noisy_laser_data(hokuyo_sensor: HokuyoSensorSim,
-                        distance_noise_std: float = 0.0,  # DISABLED for testing
-                        angle_noise_std: float = 0.0,     # DISABLED for testing
-                        max_valid_range: float = 4.9) -> np.ndarray:  # NEW: Filter max range
+                        distance_noise_std: float = 0.0,
+                        angle_noise_std: float = 0.0,
+                        max_valid_range: float = 4.9) -> np.ndarray:  # Filter max range
     """
     Get laser data with added Gaussian noise and invalid reading filtering (as required by TP3).
-
-    **IMPORTANT: This function now filters out MAX RANGE readings!**
-    When a laser sensor doesn't detect any obstacle, it returns the maximum range.
-    These readings should NOT be treated as actual obstacles - they represent
-    "no detection" or "open space beyond sensor range".
-
-    **NOTE: Noise TEMPORARILY DISABLED (set to 0.0) for testing clean mapping.**
-    **Re-enable after verifying clean map works correctly.**
-
-    This function:
-    1. Gets raw sensor data
-    2. FILTERS OUT readings at or near maximum range (invalid detections)
-    3. Adds Gaussian noise (if enabled)
 
     Args:
         hokuyo_sensor: HokuyoSensorSim instance
@@ -427,49 +379,29 @@ def get_noisy_laser_data(hokuyo_sensor: HokuyoSensorSim,
         # Raw data might contain: [..., [0.5, 5.0], [0.6, 2.3], [0.7, 5.0], ...]
         # Filtered data returns: [..., [0.6, 2.3], ...]  (max-range readings removed)
     """
-    # Get clean sensor data
     laser_data = hokuyo_sensor.getSensorData()
-
-    # FILTER OUT MAX RANGE READINGS (CRITICAL FIX!)
-    # =============================================
-    # Laser sensors return max_range when no obstacle is detected.
-    # These are NOT real obstacles - they're "no detection" indicators.
-    #
-    # Problem: Without filtering, the map shows a circular "wall" at max range
-    # Solution: Remove readings at or near max_range before mapping
-    #
-    # Reference: Most laser sensor libraries filter this automatically,
-    # but CoppeliaSim's vision sensor returns raw depth buffer including max values.
     valid_mask = laser_data[:, 1] < max_valid_range
     laser_data_filtered = laser_data[valid_mask]
 
     num_filtered = len(laser_data) - len(laser_data_filtered)
     if num_filtered > 0:
-        # Only print on first call or significant filtering
         pass  # Silent filtering to avoid spam
 
-    # If all readings filtered out (rare case), return empty array
     if len(laser_data_filtered) == 0:
         return np.array([]).reshape(0, 2)
 
-    # NOISE TEMPORARILY DISABLED - Return filtered data
     if distance_noise_std == 0.0 and angle_noise_std == 0.0:
         return laser_data_filtered
-
-    # Add Gaussian noise (only if noise parameters are non-zero)
     noisy_data = laser_data_filtered.copy()
 
-    # Add noise to angles (column 0)
     if angle_noise_std > 0.0:
         angle_noise = np.random.normal(0, angle_noise_std, size=len(laser_data_filtered))
         noisy_data[:, 0] += angle_noise
 
-    # Add noise to distances (column 1)
     if distance_noise_std > 0.0:
         distance_noise = np.random.normal(0, distance_noise_std, size=len(laser_data_filtered))
         noisy_data[:, 1] += distance_noise
 
-        # Ensure distances are positive
         noisy_data[:, 1] = np.maximum(noisy_data[:, 1], 0.01)
 
     return noisy_data
@@ -480,38 +412,6 @@ def transform_laser_to_global(robot_pose: Tuple[np.ndarray, np.ndarray],
                               laser_to_robot_transform: Optional[np.ndarray] = None) -> np.ndarray:
     """
     Transform laser sensor data from sensor frame to global (world) frame.
-
-    CRITICAL FIX: Direct World-Frame Calculation (No Double Rotation)
-    ==================================================================
-
-    PROBLEM WITH PREVIOUS APPROACH:
-    --------------------------------
-    The old code had a "double rotation" bug:
-    1. Calculated points in local frame: x_local = r*cos(angle), y_local = r*sin(angle)
-    2. Then rotated these points by robot_theta using rotation matrix
-
-    This caused curved walls because:
-    - Local angles were already sensor-relative
-    - Rotating again by robot_theta applied the rotation twice
-    - Result: Points smeared in an arc instead of straight lines
-
-    CORRECT APPROACH (Chapter 9 + Aula 18):
-    ----------------------------------------
-    For each laser beam:
-    1. Calculate world angle: world_angle = robot_theta + beam_angle
-    2. Calculate world point directly:
-       x_world = x_robot + range * cos(world_angle)
-       y_world = y_robot + range * sin(world_angle)
-
-    This matches the forward sensor model from:
-    - Chapter 9, Section 9.2: "sensors mounted so that they capture only a slice of the world"
-    - Aula 18, Slide 8: "células na ponta do feixe recebem alta probabilidade de estarem ocupadas"
-
-    Theoretical Validation:
-    - Each laser beam has a fixed angle relative to the robot's heading
-    - In world frame, beam direction = robot_heading + beam_offset
-    - Hit point = robot_position + range * direction_unit_vector
-    - No rotation matrix needed - direct trigonometric calculation
 
     Args:
         robot_pose: Tuple of (position, euler_angles) of robot in world frame
@@ -525,32 +425,19 @@ def transform_laser_to_global(robot_pose: Tuple[np.ndarray, np.ndarray],
     Returns:
         np.ndarray: Nx2 array of [x, y] points in world frame
 
-    References:
-        - Probabilistic Robotics, Chapter 9, Section 9.2
-        - aula18-mapeamento-occupancy-grid.md, Slide 8
-        - TP3.md: "fazer as transformações entre os diferentes referenciais"
     """
-    # Extract robot 2D pose in world frame
     robot_position, robot_orientation = robot_pose
     x_robot = robot_position[0]
     y_robot = robot_position[1]
     theta_robot = robot_orientation[2]  # Yaw angle (Z-rotation)
-
-    # Transform each laser point to world frame
-    # DIRECT CALCULATION: No intermediate rotation matrix
     world_points = []
 
     for beam_angle, range_measurement in laser_data:
-        # Step 1: Calculate absolute beam direction in world frame
-        # This is the ONLY rotation we need!
         world_angle = theta_robot + beam_angle
 
-        # Step 2: Calculate hit point directly in world coordinates
-        # Using polar-to-Cartesian conversion with world angle
         x_world = x_robot + range_measurement * np.cos(world_angle)
         y_world = y_robot + range_measurement * np.sin(world_angle)
 
-        # Append as 2D point (suitable for occupancy grid)
         world_points.append([x_world, y_world])
 
     return np.array(world_points)  # Returns Nx2 array
@@ -562,7 +449,6 @@ def plot_laser_scan(laser_data: np.ndarray, ax=None, title: str = "Laser Scan",
                    max_range: float = 5.0) -> None:
     """
     Plot laser scan data in polar format.
-
     Args:
         laser_data: Nx2 array of [angle, distance]
         ax: Matplotlib axis (creates new if None)
@@ -602,7 +488,7 @@ def plot_trajectory_and_points(trajectory: List[Tuple[float, float]],
                                all_points: np.ndarray,
                                title: str = "Robot Trajectory and Laser Points") -> None:
     """
-    Plot robot trajectory and all captured laser points (similar to TP1 Ex5-6).
+    Plot robot trajectory and all captured laser points
 
     This creates the incremental plot required by TP3 showing:
     (b) All captured points and robot path
@@ -648,12 +534,6 @@ def plot_incremental_map(robot_trajectory: List[Tuple[float, float]],
                          color: str = 'r') -> None:
     """
     Produce an incremental plot that closely matches TP1 Exercise 6 appearance.
-
-    Behavior and defaults chosen to reproduce TP1 visuals:
-    - Downsample points by `sample_points` (every N-th point) to avoid overplotting
-    - Filter out max-range readings (>= max_range) to remove spurious distant points
-    - Plot laser points as small red dots with semi-transparency
-    - Overlay robot trajectory as a red line with start/end markers
 
     Args:
         robot_trajectory: list of (x, y, theta) robot poses in world frame

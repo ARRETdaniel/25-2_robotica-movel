@@ -274,6 +274,7 @@ class KobukiController:
             return self.hokuyo_sensor.getSensorData(debug=debug)
         except Exception as e:
             print(f"[WARNING] Failed to get laser data: {e}")
+            print(f"[FIX] Check if you CoppeliaSim is using the Script with setBufferProperty")
             if debug:
                 import traceback
                 traceback.print_exc()

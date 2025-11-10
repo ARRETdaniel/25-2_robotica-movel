@@ -645,7 +645,7 @@ class OccupancyGridMapper:
         plt.savefig(filename, dpi=150, bbox_inches='tight')
         plt.close(fig)
 
-        print(f"✅ Occupancy grid map saved: {filename}")
+        print(f"   Occupancy grid map saved: {filename}")
         print(f"   Resolution: {self.grid_width} x {self.grid_height} cells")
         print(f"   Coverage: [{self.x_min:.1f}, {self.x_max:.1f}] x [{self.y_min:.1f}, {self.y_max:.1f}] m")
 

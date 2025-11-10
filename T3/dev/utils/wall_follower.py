@@ -303,7 +303,7 @@ class WallFollower:
             # We're in critical zone (too close to walls)
             self.stuck_counter += 1
 
-            if self.stuck_counter > 50:
+            if self.stuck_counter > 20:
                 # We've been stuck for too long - initiate recovery
                 print(f"\n[WallFollower] STUCK DETECTED! Initiating recovery maneuver...")
                 print(f"  Minimum distance: {d_min:.3f}m (critical threshold: {self.d_critical}m)")

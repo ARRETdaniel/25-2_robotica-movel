@@ -169,10 +169,13 @@ def plot_combined_visualization(
     # - White (p=0): Free cells (clear space)
     # - Gray (p=0.5): Unknown cells (unexplored)
     #
-    # The 'gray' colormap maps:
+    # The 'gray_r' (reversed gray) colormap maps:
     # - 0.0 → white (free)
     # - 0.5 → gray (unknown)
     # - 1.0 → black (occupied)
+    #
+    # NOTE: We use 'gray_r' instead of 'gray' because the standard colormap
+    # 'gray' would map 0→black and 1→white, which is backwards for occupancy grids.
     #
     # This matches TP3 requirement: "partes mais escuras representam uma maior
     # probabilidade de ocupação e partes mais claras uma menor probabilidade"
@@ -186,13 +189,16 @@ def plot_combined_visualization(
     extent = [mapper.x_min, mapper.x_max, mapper.y_min, mapper.y_max]
 
     # Display occupancy grid with correct color convention
+    # CRITICAL: Use 'gray_r' (reversed gray) for correct occupancy grid colors
+    # - 'gray_r': 0.0 → white (free), 0.5 → gray (unknown), 1.0 → black (occupied)
+    # - This matches Chapter 9 and Aula 18 convention
     im = ax3.imshow(
         prob_map,
-        cmap='gray',           # Black=occupied, White=free, Gray=unknown
+        cmap='gray_r',        # REVERSED gray: Black=occupied, White=free
         origin='lower',        # Match world coordinate system (y increases upward)
         extent=extent,         # Map grid to world coordinates
-        vmin=0,               # White (free space)
-        vmax=1,               # Black (occupied)
+        vmin=0,               # White (free space, p=0)
+        vmax=1,               # Black (occupied, p=1)
         interpolation='nearest'  # Sharp cell boundaries (no blurring)
     )
 
@@ -288,9 +294,13 @@ def plot_occupancy_grid_standalone(
     extent = [mapper.x_min, mapper.x_max, mapper.y_min, mapper.y_max]
 
     # Display grid with correct color mapping
+    # Use 'gray_r' (reversed gray) for standard occupancy grid colors
+    # - 0.0 → white (free space)
+    # - 0.5 → gray (unknown)
+    # - 1.0 → black (occupied obstacles)
     im = ax.imshow(
         prob_map,
-        cmap='gray',
+        cmap='gray_r',  # Reversed gray for correct occupancy visualization
         origin='lower',
         extent=extent,
         vmin=0,
@@ -334,5 +344,3 @@ def plot_occupancy_grid_standalone(
         plt.show()
     else:
         plt.close(fig)
-
-

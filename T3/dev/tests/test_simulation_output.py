@@ -347,7 +347,8 @@ def plot_validation_summary(
     # Plot 2: Occupancy Grid
     ax2 = plt.subplot(132)
     extent = [mapper.x_min, mapper.x_max, mapper.y_min, mapper.y_max]
-    im = ax2.imshow(prob_map, cmap='gray', origin='lower',
+    # Use 'gray_r' for correct occupancy grid colors (dark=occupied, light=free)
+    im = ax2.imshow(prob_map, cmap='gray_r', origin='lower',
                     extent=extent, vmin=0, vmax=1)
     ax2.plot(trajectory_array[:, 0], trajectory_array[:, 1],
              'r-', linewidth=1, alpha=0.7)

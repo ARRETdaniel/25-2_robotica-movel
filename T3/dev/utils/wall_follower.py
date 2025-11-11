@@ -47,9 +47,27 @@ class WallFollower:
         """
         Initialize wall follower with navigation parameters.
 
-        - Kobuki wheelbase: 0.230m → robot "radius" ≈ 0.15m
-        - Minimum safe distance: 0.4m (gives ~0.25m clearance)
-        - Wall following distance: 0.6m (comfortable navigation distance)
+        Robot Specifications (Kobuki):
+        - Wheelbase (L): 0.230m
+        - Wheel radius (r): 0.035m
+        - Robot footprint: ~0.30m diameter circle
+        - Effective radius: ~0.15m
+
+        Distance Thresholds:
+        - d_critical: Robot radius (0.15m) + safety margin (0.10m) = 0.25m
+        - d_very_close: Early warning zone = 0.35m
+        - d_safe: Minimum clearance for navigation = 0.4m (user-defined)
+        - d_follow: Target wall-following distance = 0.6m (user-defined)
+
+        Recovery Parameters:
+        - stuck_threshold: 30 iterations (1.5s @ 20Hz) before triggering recovery
+        - recovery_duration: 40 iterations (2.0s @ 20Hz) backing up
+        - Backup distance: 0.2 m/s × 2.0s = 0.4m (clears obstacles up to 0.4m deep)
+
+        References:
+        - Kobuki specs: https://yujinrobot.github.io/kobuki/enAppendixKobukiParameters.html
+        - CoppeliaSim proximity sensors: https://manual.coppeliarobotics.com/en/proximitySensors.htm
+        - Bug algorithms: aula11-planejamento-caminhos-bug.ipynb
 
         Args:
             v_nominal: Nominal forward velocity (m/s). Default: 0.5 m/s
@@ -63,10 +81,14 @@ class WallFollower:
         self.d_safe = d_safe
         self.d_follow = d_follow
         self.debug = debug
-        self.d_critical = 0.20  # Emergency threshold (too close to wall!)
-        self.d_very_close = 0.25  # Very close threshold (need to back up)
+        self.d_critical = 0.25  # Increased from 0.20m
+        self.d_very_close = 0.35  # Increased from 0.25m
+        self.stuck_threshold = 40  # Increased from 10 (1.5s @ 20Hz)
+        self.recovery_duration = 35  # Increased from 20 (2.0s @ 20Hz)
+        self.recovery_v_scale = 0.2  # Decreased from 0.5 (backward velocity multiplier)
+        self.recovery_w_scale = 0.6  # Decreased from 0.7 (turning rate multiplier)
         self.state = 'forward'
-        self.stuck_counter = 0  # Count how long we've been stuck
+        self.stuck_counter = 0  # Count iterations in critical zone
         self.recovery_steps = 0  # Steps remaining in recovery maneuver
         self.iteration = 0
         self.collision_warnings = 0  # Count how many times we're too close
@@ -138,35 +160,16 @@ class WallFollower:
 
     def plan_step(self, laser_data: np.ndarray) -> Tuple[float, float]:
         """
-        Plan one navigation step using right-hand wall following with recovery.
-
-        Enhanced Strategy with Recovery Behaviors:
-        ==========================================
-
-        PRIORITY 1: RECOVERY (if stuck or in critical zone)
-        - If in recovery mode -> Execute recovery maneuver
-        - If stuck (d_min < d_critical for >50 iterations) -> Initiate recovery
-
-        PRIORITY 2: SAFETY (avoid collisions)
-        1. If CRITICAL distance (d < 0.20m) -> EMERGENCY STOP + prepare recovery
-        2. If VERY CLOSE (d < 0.25m) -> BACK UP while turning
-        3. If obstacle in front (d < d_safe) -> Turn LEFT (avoid collision)
-
-        PRIORITY 3: WALL FOLLOWING (normal operation)
-        4. If wall on right (d < d_follow) -> Follow wall (adjust to maintain distance)
-        5. If no wall on right (d > d_follow) -> Turn RIGHT (search for wall)
-        6. Else -> Move forward
-
-        Recovery Maneuver:
-        - Back up for 20 steps while turning right
-        - This creates space and reorients the robot
-        - Based on Kobuki wheelbase (0.230m) and typical corridor widths
+        Plan one navigation step using right-hand wall following with robust recovery.
 
         Args:
             laser_data: Nx2 array with [angle, distance] for each laser beam
+                       Expected: 684 beams covering -90° to +90°
 
         Returns:
-            Tuple (v, w) with linear and angular velocities
+            Tuple (v, w):
+                v: Linear velocity (m/s). Negative = backward
+                w: Angular velocity (rad/s). Positive = left, Negative = right
         """
         self.iteration += 1
 
@@ -180,6 +183,7 @@ class WallFollower:
                 print(f"  Distance range: [{laser_data[:,1].min():.3f}m, {laser_data[:,1].max():.3f}m]")
                 print(f"  Expected: 684 beams covering -90° to +90°\n")
 
+        # Divide laser into sectors and get minimum distances
         right_dist, front_dist, left_dist = self._divide_laser_sectors(laser_data)
 
         d_right = self._get_min_distance_in_sector(right_dist)
@@ -188,6 +192,7 @@ class WallFollower:
 
         d_min = min(d_right, d_front, d_left)
 
+        # Log collision warnings when entering critical zone
         if d_min < self.d_critical:
             self.collision_warnings += 1
             if self.debug or self.collision_warnings % 10 == 1:
@@ -199,51 +204,72 @@ class WallFollower:
 
         if self.recovery_steps > 0:
             self.state = 'recovery'
-            v = -self.v_nominal * 0.5  # Back up at half speed (NEGATIVE = backward)
-            w = -self.w_max * 0.7  # Turn right while backing up
+            v = -self.v_nominal * self.recovery_v_scale  # NEGATIVE = backward
+            w = -self.w_max * self.recovery_w_scale  # Turn right while backing
+
             self.recovery_steps -= 1
 
             if self.debug:
                 print(f"  [RECOVERY] Backing up... steps remaining: {self.recovery_steps}")
+
+            if d_min > self.d_safe:
+                if self.debug or self.recovery_steps > 10:  # Log if significant time saved
+                    print(f"  [RECOVERY] Obstacle cleared! Exiting recovery early (saved {self.recovery_steps} steps)")
+                self.recovery_steps = 0
+                self.stuck_counter = 0
 
             if self.recovery_steps == 0:
                 self.stuck_counter = 0  # Reset stuck counter after recovery
                 if self.debug:
                     print(f"  [RECOVERY] Complete! Resuming normal navigation.")
 
+            return v, w
+
         elif d_min < self.d_critical:
             self.stuck_counter += 1
 
-            if self.stuck_counter > 10:
+            if self.stuck_counter > self.stuck_threshold:
                 # We've been stuck for too long - initiate recovery
                 print(f"\n[WallFollower] STUCK DETECTED! Initiating recovery maneuver...")
                 print(f"  Minimum distance: {d_min:.3f}m (critical threshold: {self.d_critical}m)")
-                print(f"  Stuck for {self.stuck_counter} iterations")
+                print(f"  Stuck for {self.stuck_counter} iterations ({self.stuck_counter*0.05:.1f}s @ 20Hz)")
+                print(f"  Recovery plan: Back up 0.4m while turning right")
+
                 self.state = 'recovery'
-                self.recovery_steps = 20  # Back up for 20 iterations (~2 seconds)
-                v = -self.v_nominal * 0.5  # Start backing up
-                w = -self.w_max * 0.7  # Turn right
+                self.recovery_steps = self.recovery_duration
+
+                v = -self.v_nominal * self.recovery_v_scale
+                w = -self.w_max * self.recovery_w_scale
+
+                return v, w
             else:
-                # Still in critical zone but not stuck yet - emergency stop
+                # Still in critical zone but not stuck yet - EMERGENCY STOP
                 self.state = 'emergency_stop'
-                v = 0.0
-                w = self.w_max  # Turn left to try to find opening
+                v = 0.0  # STOP (don't move forward)
+                w = 0.0  # Don't turn either (turning in place when too close causes collisions!)
 
                 if self.debug or self.stuck_counter % 10 == 1:
-                    print(f"  [EMERGENCY] Stopped. Stuck counter: {self.stuck_counter}/50")
+                    print(f"  [EMERGENCY STOP] Stopped. Stuck counter: {self.stuck_counter}/{self.stuck_threshold}")
+
+                return v, w
+
         else:
             # Not in critical zone - reset stuck counter
-            if self.stuck_counter > 0 and self.debug:
-                print(f"  [RECOVERY] Escaped critical zone! Resetting stuck counter from {self.stuck_counter}")
-            self.stuck_counter = 0
+            if self.stuck_counter > 0:
+                if self.stuck_counter > 5 or self.debug:  # Only log if was actually stuck
+                    print(f"  [RECOVERED] Escaped critical zone! (was stuck for {self.stuck_counter} iters)")
+                self.stuck_counter = 0
+
 
             if d_min < self.d_very_close:
                 self.state = 'back_up'
                 v = -self.v_nominal * 0.3  # Back up slowly (NEGATIVE = backward)
-                w = -self.w_max * 0.5  # Turn right while backing
+                w = self.w_max * 0.3  # Turn LEFT to find opening (opposite of wall following)
 
                 if self.debug:
                     print(f"  [BACK_UP] d_min={d_min:.3f}m < very_close={self.d_very_close}m")
+
+                return v, w
 
             elif d_front < self.d_safe:
                 self.state = 'turn_left'
@@ -253,24 +279,26 @@ class WallFollower:
                 if self.debug:
                     print(f"  [TURN_LEFT] d_front={d_front:.3f}m < d_safe={self.d_safe}m")
 
+                return v, w
+
+
             elif d_right < self.d_follow:
                 self.state = 'follow_wall'
                 v = self.v_nominal
 
                 # Proportional control to maintain distance d_follow
-                # If too close (d_right < d_follow): turn left (positive w) to move away
-                # If too far (d_right > d_follow): turn right (negative w) to move closer
-                error = self.d_follow - d_right  # FIXED: Flipped error calculation
-                k_p = 1.0  # REDUCED: Gentler control for smoother following
-                w = k_p * error  # FIXED: Removed negative sign
+                error = self.d_follow - d_right
+                k_p = 1.0  # Proportional gain (tuned empirically)
+                w = k_p * error
 
                 w = np.clip(w, -self.w_max, self.w_max)
 
                 if self.debug:
                     print(f"  [FOLLOW_WALL] d_right={d_right:.3f}m, error={error:.3f}m, w={np.rad2deg(w):.1f}°/s")
 
+                return v, w
 
-            elif d_right > self.d_follow * 3.0:  # INCREASED: Only search when truly lost (1.8m)
+            elif d_right > self.d_follow * 3.0:
                 self.state = 'search_wall'
                 v = self.v_nominal * 0.7  # Reduce speed while searching
                 w = -self.w_max * 0.5  # Turn right at moderate rate
@@ -278,15 +306,19 @@ class WallFollower:
                 if self.debug:
                     print(f"  [SEARCH_WALL] d_right={d_right:.3f}m > threshold={self.d_follow*3.0:.3f}m")
 
+                return v, w
+
             else:
                 self.state = 'forward'
                 v = self.v_nominal
-                w = 0.1
+                w = -0.05  # Very slight right turn (helps stay near walls)
 
                 if self.debug:
-                    print(f"  [FORWARD] Open space, moving forward")
+                    print(f"  [FORWARD] Open space, moving forward with slight right bias")
 
-        # Debug output every 5 iterations (~0.5 seconds at 10Hz) or always if debug enabled
+                return v, w
+
+        # Debug output every 5 iterations (~0.25 seconds at 20Hz) or always if debug enabled
         if self.iteration % 5 == 0 or self.debug:
             status = f"[WallFollower] Iter {self.iteration:4d} | State: {self.state:15s} | "
             status += f"d_min={d_min:.2f}m, d_right={d_right:.2f}m, d_front={d_front:.2f}m | "
